@@ -42,7 +42,7 @@ function App() {
     // --- Bağlantı Olayları ---
     newSocket.on("connect", () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log("Socket ID:", newSocket.id);});
     newSocket.on("connect_error", (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); });
-    newSocket.on("disconnect", (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); /* Diğer state resetleri */ setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); });
+    newSocket.on("disconnect", (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); });
     newSocket.on('error_message', (data) => { alert(`Sunucu Hatası: ${data.message}`); });
     newSocket.on('reset_game', (data) => { setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); });
     newSocket.on('initial_state', (data) => { setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); });
@@ -77,7 +77,7 @@ function App() {
       if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current);
       newSocket.disconnect();
     };
-  }, []); // Sadece component mount olduğunda çalışır
+  }, [gameState, currentQuestion, players]); // Bağımlılıkları güncelledim
 
   // === Kullanıcı Eylemleri (Callback Hookları) ===
   const handleJoinTournament = useCallback(() => { if (socket && isConnected && playerName.trim()) { socket.emit('join_tournament', { name: playerName.trim() }); setWaitingMessage('Sunucuya katılım isteği gönderildi...'); setIsPlayerReady(false); } else if (!playerName.trim()){ alert('Lütfen katılmak için bir isim girin.'); } else { setConnectionMessage('Önce sunucuya bağlanmalısınız.'); } }, [socket, isConnected, playerName]);
@@ -86,45 +86,23 @@ function App() {
 
   // === Render Edilecek Component'i Belirleme ===
   const renderCurrentScreen = () => {
-      // Oyuncu bağlı değilse veya IDLE durumundaysa ve henüz oyuncu listesinde yoksa Katılma Ekranı
-       if (!isConnected || gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
-         return <JoinScreen
-                    playerName={playerName}
-                    setPlayerName={setPlayerName}
-                    handleJoinTournament={handleJoinTournament}
-                    isConnected={isConnected}
-                    waitingMessage={waitingMessage}
-                />;
+       if (!isConnected) { // Bağlı değilse sadece katılma ekranı veya bir mesaj
+             return <JoinScreen playerName={playerName} setPlayerName={setPlayerName} handleJoinTournament={handleJoinTournament} isConnected={isConnected} waitingMessage={connectionMessage}/>; // Bağlantı mesajını göster
        }
-       // Bekleme durumundaysa ve oyuncu listedeyse Bekleme Lobisi
-       if (gameState === GAME_STATES.WAITING_TOURNAMENT && players.find(p=>p.id === socket?.id)) {
-            return <WaitingLobby
-                        players={players} // PlayerList sidebar'da olacak ama belki lobbye de lazım olur?
-                        handlePlayerReady={handlePlayerReady}
-                        isPlayerReady={isPlayerReady}
-                        waitingMessage={waitingMessage}
-                        currentSocketId={socket?.id}
-                    />;
+       // Oyun IDLE ise veya WAITING ama oyuncu henüz listede yoksa (reset sonrası)
+       if (gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
+         return <JoinScreen playerName={playerName} setPlayerName={setPlayerName} handleJoinTournament={handleJoinTournament} isConnected={isConnected} waitingMessage={waitingMessage}/>;
+       }
+       if (gameState === GAME_STATES.WAITING_TOURNAMENT) { // Beklemedeyse ve listedeyse
+            return <WaitingLobby players={players} handlePlayerReady={handlePlayerReady} isPlayerReady={isPlayerReady} waitingMessage={waitingMessage} currentSocketId={socket?.id}/>;
         }
-        // Oyun चल रहा हैsa Oyun Arayüzü
         if (gameState === GAME_STATES.TOURNAMENT_RUNNING) {
-             return <GameInterface
-                         currentQuestion={currentQuestion}
-                         timeRemaining={timeRemaining}
-                         handleAnswerSubmit={handleAnswerSubmit}
-                         lastAnswerResult={lastAnswerResult}
-                     />;
+             return <GameInterface currentQuestion={currentQuestion} timeRemaining={timeRemaining} handleAnswerSubmit={handleAnswerSubmit} lastAnswerResult={lastAnswerResult}/>;
          }
-         // Oyun bittiyse Sonuç Ekranı
          if (gameState === GAME_STATES.GAME_OVER) {
-             return <ResultsScreen
-                         gameResults={gameResults}
-                         waitingMessage={waitingMessage}
-                         currentSocketId={socket?.id}
-                     />;
+             return <ResultsScreen gameResults={gameResults} waitingMessage={waitingMessage} currentSocketId={socket?.id}/>;
          }
-         // Varsayılan olarak null veya bir yükleniyor ekranı döndür
-         return <p>Yükleniyor...</p>;
+         return <p>Yükleniyor veya bilinmeyen durum...</p>; // Varsayılan
   };
 
   // === Ana Render ===
@@ -141,7 +119,7 @@ function App() {
             </div>
 
             {/* Kenar Paneli (Oyun başladığında veya bittiğinde göster) */}
-            {(gameState === GAME_STATES.WAITING_TOURNAMENT || gameState === GAME_STATES.TOURNAMENT_RUNNING || gameState === GAME_STATES.GAME_OVER) && players.length > 0 && (
+            {(gameState === GAME_STATES.WAITING_TOURNAMENT || gameState === GAME_STATES.TOURNAMENT_RUNNING || gameState === GAME_STATES.GAME_OVER) && players.length > 0 && isConnected && ( // Sadece bağlıyken ve oyun durumları uygunken göster
                  <div className="sidebar">
                     <PlayerList players={players} gameState={gameState} currentSocketId={socket?.id} />
                     <AnnouncerLog announcerLog={announcerLog} />
