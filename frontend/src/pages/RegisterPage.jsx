@@ -1,55 +1,65 @@
 import React, { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Container, Paper, TextField, Typography, Link, Grid, CircularProgress, Alert } from '@mui/material';
-import { createUserWithEmailAndPassword } from "firebase/auth"; // Firebase importları
-import { auth } from '../firebaseConfig';
-// import useUserStore from '../store/userStore'; // Kayıt sonrası otomatik giriş için gerekebilir
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore"; // Firestore importları
+import { auth, db } from '../firebaseConfig'; // db (Firestore instance) import edildi
 
 function RegisterPage() {
   const navigate = useNavigate();
+  const [displayName, setDisplayName] = useState(''); // Görünen ad state'i
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // const setUser = useUserStore((state) => state.setUser); // Otomatik giriş için
 
   const handleRegister = async (event) => {
     event.preventDefault();
-    setError(''); // Hataları temizle
+    setError('');
 
-    // Şifreleri kontrol et
-    if (password !== confirmPassword) {
-      setError('Şifreler eşleşmiyor!');
-      return;
-    }
-    if (password.length < 6) {
-         setError('Şifre en az 6 karakter olmalıdır.');
+    if (!displayName.trim()) { // İsim boş mu kontrolü
+         setError('Lütfen bir görünen ad girin.');
          return;
      }
+    if (password !== confirmPassword) { setError('Şifreler eşleşmiyor!'); return; }
+    if (password.length < 6) { setError('Şifre en az 6 karakter olmalıdır.'); return; }
 
     setLoading(true);
 
     try {
+      // 1. Firebase Auth kullanıcısını oluştur
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      // Başarılı kayıt - Kullanıcı otomatik olarak giriş yapmış olur (onAuthStateChanged yakalar)
-      console.log('Kayıt başarılı:', userCredential.user.email);
-      // İsteğe bağlı: Firestore'a ek kullanıcı bilgileri kaydedilebilir (isim, sınıf vb.)
-      // setUser(userCredential.user); // Zustand'ı manuel güncellemeye gerek yok, onAuthStateChanged yapar.
-      navigate('/'); // Başarılı kayıt sonrası ana sayfaya yönlendir
+      const user = userCredential.user;
+      console.log('Auth kaydı başarılı:', user.uid, user.email);
+
+      // 2. Firestore'a kullanıcı verisini kaydet
+      // users koleksiyonunda user.uid ile aynı ID'ye sahip bir doküman oluştur/güncelle
+      const userDocRef = doc(db, "users", user.uid);
+
+      const userData = {
+        uid: user.uid,
+        email: user.email,
+        displayName: displayName.trim(), // Kayıttaki ismi kullan
+        createdAt: serverTimestamp(), // Kayıt zamanı
+        // İleride eklenecekler:
+        // grade: null, // Sınıf bilgisi
+        // xp: 0,
+        // resources: { wisdom: 0, crystal: 0, energy: 0, culture: 0 }
+      };
+
+      await setDoc(userDocRef, userData);
+      console.log('Firestore kaydı başarılı:', user.uid);
+
+      // Başarılı kayıt sonrası ana sayfaya yönlendir (onAuthStateChanged zaten state'i güncelleyecek)
+      navigate('/');
+
     } catch (err) {
-      console.error("Firebase kayıt hatası:", err);
-      // Daha kullanıcı dostu hata mesajları
-      if (err.code === 'auth/email-already-in-use') {
-           setError('Bu e-posta adresi zaten kullanımda.');
-      } else if (err.code === 'auth/weak-password') {
-           setError('Şifre çok zayıf. Daha güçlü bir şifre deneyin.');
-      } else if (err.code === 'auth/invalid-email') {
-           setError('Lütfen geçerli bir e-posta adresi girin.');
-      }
-       else {
-           setError('Kayıt sırasında bir hata oluştu. Lütfen tekrar deneyin.');
-       }
+      console.error("Firebase kayıt/firestore hatası:", err);
+      if (err.code === 'auth/email-already-in-use') { setError('Bu e-posta adresi zaten kullanımda.'); }
+      else if (err.code === 'auth/weak-password') { setError('Şifre çok zayıf.'); }
+      else if (err.code === 'auth/invalid-email') { setError('Geçerli bir e-posta girin.'); }
+      else { setError(`Kayıt hatası: ${err.message}`); } // Firestore hatası da olabilir
     } finally {
       setLoading(false);
     }
@@ -58,12 +68,22 @@ function RegisterPage() {
   return (
     <Container component="main" maxWidth="xs">
       <Paper elevation={4} sx={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 4 }}>
-        <Typography component="h1" variant="h5">
-          Kayıt Ol
-        </Typography>
+        <Typography component="h1" variant="h5"> Kayıt Ol </Typography>
         {error && <Alert severity="error" sx={{ width: '100%', mt: 2 }}>{error}</Alert>}
         <Box component="form" onSubmit={handleRegister} noValidate sx={{ mt: 1 }}>
-          {/* TODO: İleride Ad, Soyad, Sınıf gibi alanlar eklenebilir */}
+          <TextField
+            margin="normal"
+            required
+            fullWidth
+            id="displayName"
+            label="Görünen Adınız"
+            name="displayName"
+            autoComplete="name"
+            autoFocus // İlk odak burası olsun
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            disabled={loading}
+          />
           <TextField
             margin="normal"
             required
@@ -72,7 +92,6 @@ function RegisterPage() {
             label="E-posta Adresi"
             name="email"
             autoComplete="email"
-            autoFocus
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={loading}
@@ -103,13 +122,7 @@ function RegisterPage() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             disabled={loading}
           />
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            sx={{ mt: 3, mb: 2 }}
-            disabled={loading}
-          >
+          <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }} disabled={loading} >
             {loading ? <CircularProgress size={24} color="inherit" /> : 'Kayıt Ol'}
           </Button>
           <Grid container justifyContent="flex-end">
