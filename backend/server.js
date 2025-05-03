@@ -87,21 +87,18 @@ function broadcastTournamentState() {
 
 // Announcer mesajı gönderme fonksiyonu
 function sendAnnouncerMessage(message, type = 'info') {
-    console.log(`[Announcer] ${message}`);
+    console.log(`[Announcer] ${message}`); // Mesajın doğru oluştuğunu burada kontrol et
     io.to(TOURNAMENT_ROOM).emit('announcer_message', {
-        text: message,
-        type: type, // 'info', 'combo', 'lead', 'speed', 'warning' vb. olabilir (frontend'de farklı stil için)
+        text: message, // Buraya gelen 'message' argümanı doğru formatlanmış olmalı
+        type: type,
         timestamp: Date.now()
     });
 }
 
-// --- YENİ: Soru Özeti ve Yorum Üretme ---
+// Soru Özeti ve Yorum Üretme
 function generateQuestionSummaryAnnouncements(qIndex) {
-    if (currentQuestionAnswers.size === 0 && currentGameState === GAME_MODES.TOURNAMENT_RUNNING) { // Oyun bitmediyse ve cevap yoksa
-         sendAnnouncerMessage(`Soru ${qIndex + 1} için kimse cevap vermedi! 🤷`, "warning");
-         return;
-     }
-     if (currentQuestionAnswers.size === 0) return; // Oyun bittiyse vs. analiz yapma
+    if (currentQuestionAnswers.size === 0 && currentGameState === GAME_MODES.TOURNAMENT_RUNNING) { sendAnnouncerMessage(`Soru ${qIndex + 1} için kimse cevap vermedi! 🤷`, "warning"); return; }
+    if (currentQuestionAnswers.size === 0) return;
 
     let correctCount = 0;
     let fastestTimeMs = Infinity;
@@ -118,47 +115,23 @@ function generateQuestionSummaryAnnouncements(qIndex) {
         }
     });
 
-    const totalPlayersInRoom = tournamentPlayers.size; // O an odada olanlar (ayrılanlar hariç)
+    const totalPlayersInRoom = tournamentPlayers.size;
 
-    // Yorumları oluştur
-    if (correctCount === submittedAnswerCount && submittedAnswerCount === totalPlayersInRoom && totalPlayersInRoom > 1) { // Herkes cevapladı VE herkes doğru bildi
-        sendAnnouncerMessage(`Mükemmel tur! Herkes doğru bildi! �� (<span class="math-inline">\{correctCount\}/</span>{totalPlayersInRoom})`, "all_correct");
-    } else if (correctCount === 0 && submittedAnswerCount > 0) {
-         sendAnnouncerMessage(`Bu soruda doğru cevap veren olmadı! 🤔 (<span class="math-inline">\{correctCount\}/</span>{submittedAnswerCount} cevap)`, "none_correct");
-     } else if (correctCount > 0 && correctCount < submittedAnswerCount) {
-         sendAnnouncerMessage(`${correctCount} oyuncu doğru cevabı buldu.`, "info");
-     } else if (correctCount > 0 && correctCount === submittedAnswerCount && submittedAnswerCount < totalPlayersInRoom) {
-          sendAnnouncerMessage(`Cevap veren ${correctCount} oyuncunun hepsi doğru bildi!`, "info");
-      }
+    if (correctCount === submittedAnswerCount && submittedAnswerCount === totalPlayersInRoom && totalPlayersInRoom > 1) { sendAnnouncerMessage(`Mükemmel tur! Herkes doğru bildi! 🏆 (${correctCount}/${totalPlayersInRoom})`, "all_correct"); }
+    else if (correctCount === 0 && submittedAnswerCount > 0) { sendAnnouncerMessage(`Bu soruda doğru cevap veren olmadı! 🤔 (${correctCount}/${submittedAnswerCount} cevap)`, "none_correct"); }
+    else if (correctCount > 0 && correctCount < submittedAnswerCount) { sendAnnouncerMessage(`${correctCount} oyuncu doğru cevabı buldu.`, "info"); }
+    else if (correctCount > 0 && correctCount === submittedAnswerCount && submittedAnswerCount < totalPlayersInRoom) { sendAnnouncerMessage(`Cevap veren ${correctCount} oyuncunun hepsi doğru bildi!`, "info"); }
 
+    if (fastestPlayerId && tournamentPlayers.has(fastestPlayerId)) { sendAnnouncerMessage(`En hızlı doğru cevap ${tournamentPlayers.get(fastestPlayerId).name}'dan geldi! (${(fastestTimeMs / 1000).toFixed(1)}sn) ⚡️`, "speed"); }
 
-    if (fastestPlayerId && tournamentPlayers.has(fastestPlayerId)) {
-        sendAnnouncerMessage(`En hızlı doğru cevap <span class="math-inline">\{tournamentPlayers\.get\(fastestPlayerId\)\.name\}'dan geldi\! \(</span>{(fastestTimeMs / 1000).toFixed(1)}sn) ⚡️`, "speed");
-    }
-
-    // En yüksek komboyu bul ve duyur
     let maxCombo = 0;
     let comboPlayerName = null;
-    tournamentPlayers.forEach((player) => {
-        if (player.combo > maxCombo) {
-            maxCombo = player.combo;
-            comboPlayerName = player.name;
-        }
-    });
-    // Komboyu sadece belirli seviyelerde duyurmak daha iyi olabilir (örn: 3, 5, 7...)
-    if (maxCombo >= 3 && maxCombo % 2 !== 0) { // Örn: 3, 5, 7... komboları duyur
-        sendAnnouncerMessage(`${comboPlayerName} ${maxCombo} maçlık galibiyet serisiyle coştu! 🔥`, "combo");
-    }
+    tournamentPlayers.forEach((player) => { if (player.combo > maxCombo) { maxCombo = player.combo; comboPlayerName = player.name; } });
+    if (maxCombo >= 3 && maxCombo % 2 !== 0) { sendAnnouncerMessage(`${comboPlayerName} ${maxCombo} maçlık galibiyet serisiyle coştu! 🔥`, "combo"); }
 
-    // Liderlik durumu (her soru sonrası yerine periyodik)
     const sortedPlayers = getSortedPlayerList();
-    if (sortedPlayers.length > 0) {
-         if ( (qIndex + 1) % 3 === 0 || qIndex === gameQuestions.length -1 ) { // Her 3 soruda bir veya son soruda
-             sendAnnouncerMessage(`Şu anki lider <span class="math-inline">\{sortedPlayers\[0\]\.name\} \(</span>{sortedPlayers[0].score}p)! 👑`, "lead");
-         }
-     }
+    if (sortedPlayers.length > 0) { if ( (qIndex + 1) % 3 === 0 || qIndex === gameQuestions.length -1 ) { sendAnnouncerMessage(`Şu anki lider ${sortedPlayers[0].name} (${sortedPlayers[0].score}p)! 👑`, "lead"); } }
 }
-
 
 async function startTournament() {
     const allPlayers = Array.from(tournamentPlayers.values());
@@ -179,20 +152,24 @@ async function startTournament() {
 function sendNextQuestion() {
     clearTimeout(questionTimer);
     if (currentQuestionIndex >= 0) { generateQuestionSummaryAnnouncements(currentQuestionIndex); } // Önce özet
-    currentQuestionAnswers.clear();
+    currentQuestionAnswers.clear(); // Yeni soru için cevapları temizle
 
     currentQuestionIndex++;
     if (currentQuestionIndex >= gameQuestions.length) { endTournament(); return; }
     const question = gameQuestions[currentQuestionIndex];
     const questionData = { index: currentQuestionIndex, total: gameQuestions.length, text: question.question_text, options: question.options, timeLimit: QUESTION_TIME_LIMIT };
-    setTimeout(() => { // Özet mesajlarının okunması için kısa bekleme
-         sendAnnouncerMessage(`Soru <span class="math-inline">\{currentQuestionIndex \+ 1\}/</span>{gameQuestions.length}: ${question.question_text}`, "question");
-         console.log(`Soru <span class="math-inline">\{currentQuestionIndex \+ 1\}/</span>{gameQuestions.length} gönderiliyor...`);
+
+    // Soru metnini template literal yerine string birleştirme ile oluşturalım (test için)
+    const questionAnnounceText = 'Soru ' + (currentQuestionIndex + 1) + '/' + gameQuestions.length + ': ' + question.question_text;
+
+    setTimeout(() => {
+         sendAnnouncerMessage(questionAnnounceText, "question"); // Değiştirilmiş metni gönder
+         console.log(`Soru ${currentQuestionIndex + 1}/${gameQuestions.length} gönderiliyor...`); // Konsol logu aynı kalabilir
          questionStartTime = Date.now();
          io.to(TOURNAMENT_ROOM).emit('new_question', questionData);
     }, 1000); // Özetlerden 1 saniye sonra soruyu gönder
 
-    questionTimer = setTimeout(() => { console.log(`Soru ${currentQuestionIndex + 1} için süre doldu.`); io.to(TOURNAMENT_ROOM).emit('question_timeout', { questionIndex: currentQuestionIndex }); sendNextQuestion(); }, QUESTION_TIME_LIMIT * 1000 + 1000); // Süre + soru gönderme gecikmesi
+    questionTimer = setTimeout(() => { console.log(`Soru ${currentQuestionIndex + 1} için süre doldu.`); io.to(TOURNAMENT_ROOM).emit('question_timeout', { questionIndex: currentQuestionIndex }); sendNextQuestion(); }, QUESTION_TIME_LIMIT * 1000 + 1000);
 }
 
 function endTournament() { clearTimeout(questionTimer); if(currentQuestionIndex >= 0) { generateQuestionSummaryAnnouncements(currentQuestionIndex); } console.log("Turnuva bitti!"); currentGameState = GAME_MODES.GAME_OVER; const results = getSortedPlayerList().map(({id, name, score}) => ({id, name, score})); sendAnnouncerMessage(`Yarışma sona erdi! Kazanan ${results[0]?.name || 'belli değil'}! 🏆 İşte sonuçlar:`, "gameover"); io.to(TOURNAMENT_ROOM).emit('game_over', { results }); setTimeout(() => { console.log("Oyun durumu IDLE'a dönüyor."); currentGameState = GAME_MODES.IDLE; tournamentPlayers.clear(); gameQuestions = []; currentQuestionIndex = -1; io.to(TOURNAMENT_ROOM).emit('reset_game', { message: 'Oyun bitti. Yeni oyun bekleniyor.' }); }, 15000); }
@@ -202,20 +179,21 @@ io.on('connection', (socket) => {
   console.log(`Bağlandı: ${socket.id}, Durum: ${currentGameState}`);
   socket.emit('initial_state', { gameState: currentGameState, players: getSortedPlayerList() });
 
-  socket.on('join_tournament', (data) => { const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`; if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.GAME_OVER ) { socket.emit('error_message', { message: 'Devam eden oyun var veya yeni bitti.' }); return; } if (tournamentPlayers.has(socket.id)) { console.log(`${playerName} zaten listede.`); socket.join(TOURNAMENT_ROOM); return; } console.log(`Oyuncu <span class="math-inline">\{socket\.id\} \(</span>{playerName}) turnuvaya katılıyor.`); socket.join(TOURNAMENT_ROOM); tournamentPlayers.set(socket.id, { name: playerName, score: 0, combo: 0, isReady: false }); if (currentGameState === GAME_MODES.IDLE) { currentGameState = GAME_MODES.WAITING_TOURNAMENT; } console.log("Turnuva Oyuncuları:", Array.from(tournamentPlayers.keys())); sendAnnouncerMessage(`${playerName} yarışmaya katıldı! Aramıza hoş geldin! 👋`, "join"); broadcastTournamentState(); if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && tournamentPlayers.size >= MIN_PLAYERS_TO_INFORM) { io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Oyuncular bekleniyor. Hazır olduğunuzda belirtin.' }); } });
-  socket.on('player_ready', () => { if (currentGameState !== GAME_MODES.WAITING_TOURNAMENT || !tournamentPlayers.has(socket.id)) return; const player = tournamentPlayers.get(socket.id); if (!player.isReady) { player.isReady = true; console.log(`Oyuncu <span class="math-inline">\{player\.name\} \(</span>{socket.id}) hazır.`); sendAnnouncerMessage(`${player.name} hazır! 👍`, "info"); broadcastTournamentState(); const allPlayersArray = Array.from(tournamentPlayers.values()); if (allPlayersArray.length >= 1 && allPlayersArray.every(p => p.isReady)) { console.log("Tüm oyuncular hazır, turnuva başlatılıyor..."); sendAnnouncerMessage("Herkes hazır görünüyor! Geri sayım başlasın!", "info"); setTimeout(startTournament, 1000); /* Kısa bekleme */} else { io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Diğer oyuncuların hazır olması bekleniyor...' }); } } });
+  socket.on('join_tournament', (data) => { const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`; if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.GAME_OVER ) { socket.emit('error_message', { message: 'Devam eden oyun var veya yeni bitti.' }); return; } if (tournamentPlayers.has(socket.id)) { console.log(`${playerName} zaten listede.`); socket.join(TOURNAMENT_ROOM); return; } console.log(`Oyuncu ${socket.id} (${playerName}) turnuvaya katılıyor.`); socket.join(TOURNAMENT_ROOM); tournamentPlayers.set(socket.id, { name: playerName, score: 0, combo: 0, isReady: false }); if (currentGameState === GAME_MODES.IDLE) { currentGameState = GAME_MODES.WAITING_TOURNAMENT; } console.log("Turnuva Oyuncuları:", Array.from(tournamentPlayers.keys())); sendAnnouncerMessage(`${playerName} yarışmaya katıldı! Aramıza hoş geldin! 👋`, "join"); broadcastTournamentState(); if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && tournamentPlayers.size >= MIN_PLAYERS_TO_INFORM) { io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Oyuncular bekleniyor. Hazır olduğunuzda belirtin.' }); } });
+  socket.on('player_ready', () => { if (currentGameState !== GAME_MODES.WAITING_TOURNAMENT || !tournamentPlayers.has(socket.id)) return; const player = tournamentPlayers.get(socket.id); if (!player.isReady) { player.isReady = true; console.log(`Oyuncu ${player.name} (${socket.id}) hazır.`); sendAnnouncerMessage(`${player.name} hazır! 👍`, "info"); broadcastTournamentState(); const allPlayersArray = Array.from(tournamentPlayers.values()); if (allPlayersArray.length >= 1 && allPlayersArray.every(p => p.isReady)) { console.log("Tüm oyuncular hazır, turnuva başlatılıyor..."); sendAnnouncerMessage("Herkes hazır görünüyor! Geri sayım başlasın!", "info"); setTimeout(startTournament, 1000); } else { io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Diğer oyuncuların hazır olması bekleniyor...' }); } } });
+
   socket.on('submit_answer', (data) => {
     const answerTime = Date.now();
     if (currentGameState !== GAME_MODES.TOURNAMENT_RUNNING || !tournamentPlayers.has(socket.id)) return;
     if (typeof data.questionIndex !== 'number' || data.questionIndex !== currentQuestionIndex) { return; }
     const player = tournamentPlayers.get(socket.id);
-    if (currentQuestionAnswers.has(socket.id)) { console.log(`<span class="math-inline">\{player\.name\} \(</span>{socket.id}) bu soruya zaten cevap verdi.`); return; } // Zaten cevapladıysa
+    if (currentQuestionAnswers.has(socket.id)) { console.log(`${player.name} (${socket.id}) bu soruya zaten cevap verdi.`); return; }
 
     const question = gameQuestions[currentQuestionIndex];
     const correctAnswer = question?.correct_answer;
     const timeDiffMs = answerTime - questionStartTime;
 
-    console.log(`Cevap alındı: <span class="math-inline">\{player\.name\} \(</span>{socket.id}), Soru ${currentQuestionIndex+1}, Cevap: ${data.answer}, Süre: ${timeDiffMs}ms`);
+    console.log(`Cevap alındı: ${player.name} (${socket.id}), Soru ${currentQuestionIndex+1}, Cevap: ${data.answer}, Süre: ${timeDiffMs}ms`);
 
     let pointsAwarded = 0;
     let correct = false;
@@ -230,14 +208,14 @@ io.on('connection', (socket) => {
         const comboBonus = Math.min(MAX_COMBO_BONUS, Math.max(0, player.combo - 1) * COMBO_BONUS_MULTIPLIER);
         pointsAwarded = BASE_SCORE + timeBonus + comboBonus;
         player.score += pointsAwarded;
-        console.log(`Doğru! <span class="math-inline">\{player\.name\} \(</span>{socket.id}) +${pointsAwarded}p. Skor: ${player.score}, Kombo: ${player.combo}`);
+        console.log(`Doğru! ${player.name} (${socket.id}) +${pointsAwarded}p. Skor: ${player.score}, Kombo: ${player.combo}`);
          if (player.combo >= 2) {
-              setTimeout(()=> sendAnnouncerMessage(`${player.name} <span class="math-inline">\{player\.combo\}x Kombo\! 💪 \+</span>{comboBonus} bonus!`, "combo"), 300);
+              setTimeout(()=> sendAnnouncerMessage(`${player.name} ${player.combo}x Kombo! 💪 +${comboBonus} bonus!`, "combo"), 300);
          }
     } else {
         comboBroken = player.combo > 0;
         player.combo = 0;
-        console.log(`Yanlış! <span class="math-inline">\{player\.name\} \(</span>{socket.id}). Kombo sıfırlandı.`);
+        console.log(`Yanlış! ${player.name} (${socket.id}). Kombo sıfırlandı.`);
         if (comboBroken) {
               setTimeout(()=> sendAnnouncerMessage(`${player.name}'in ${currentCombo}x kombosu sona erdi! 💥`, "combo_break"), 300);
          }
@@ -247,7 +225,7 @@ io.on('connection', (socket) => {
     broadcastTournamentState();
   });
 
-  socket.on('disconnect', (reason) => { console.log(`Ayrıldı: ${socket.id}. Sebep: ${reason}`); if (tournamentPlayers.has(socket.id)) { const player = tournamentPlayers.get(socket.id); const wasReady = player.isReady; tournamentPlayers.delete(socket.id); console.log(`Oyuncu <span class="math-inline">\{socket\.id\} \(</span>{player.name}) turnuvadan ayrıldı.`); sendAnnouncerMessage(`${player.name} yarışmadan ayrıldı.`, "leave"); console.log("Turnuva Oyuncuları:", Array.from(tournamentPlayers.keys())); if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.WAITING_TOURNAMENT) { broadcastTournamentState(); if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && wasReady) { const allPlayersArray = Array.from(tournamentPlayers.values()); if (allPlayersArray.length >= 1 && allPlayersArray.every(p => p.isReady)) { console.log("Hazır oyuncu ayrıldı, kalanlar hazır. Turnuva başlatılıyor..."); startTournament(); } } if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING && tournamentPlayers.size < 1) { console.log("Oyuncu kalmadı, turnuva bitiriliyor."); endTournament(); } } } });
+  socket.on('disconnect', (reason) => { console.log(`Ayrıldı: ${socket.id}. Sebep: ${reason}`); if (tournamentPlayers.has(socket.id)) { const player = tournamentPlayers.get(socket.id); const wasReady = player.isReady; tournamentPlayers.delete(socket.id); console.log(`Oyuncu ${socket.id} (${player.name}) turnuvadan ayrıldı.`); sendAnnouncerMessage(`${player.name} yarışmadan ayrıldı.`, "leave"); console.log("Turnuva Oyuncuları:", Array.from(tournamentPlayers.keys())); if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.WAITING_TOURNAMENT) { broadcastTournamentState(); if (currentGameState === GAME_STATES.WAITING_TOURNAMENT && wasReady) { const allPlayersArray = Array.from(tournamentPlayers.values()); if (allPlayersArray.length >= 1 && allPlayersArray.every(p => p.isReady)) { console.log("Hazır oyuncu ayrıldı, kalanlar hazır. Turnuva başlatılıyor..."); startTournament(); } } if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING && tournamentPlayers.size < 1) { console.log("Oyuncu kalmadı, turnuva bitiriliyor."); endTournament(); } } } });
 }); // io.on('connection') sonu
 
 app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/plain'); res.status(200).send(`Asrin Oyunu Backend Çalışıyor! Durum: ${currentGameState}, Oyuncular: ${tournamentPlayers.size}`); });
