@@ -1,62 +1,62 @@
 import React from 'react';
-// Animasyon için Framer Motion eklenebilir
 import { motion } from 'framer-motion';
+import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
+import Paper from '@mui/material/Paper';
+import Box from '@mui/material/Box';
+import Grid from '@mui/material/Grid'; // Grid layout için
+import LinearProgress from '@mui/material/LinearProgress'; // Zamanlayıcı barı
 
-// Props: currentQuestion, timeRemaining, handleAnswerSubmit, lastAnswerResult
 function QuestionDisplay({ currentQuestion, timeRemaining, handleAnswerSubmit, lastAnswerResult }) {
-  // Eğer geçerli bir soru yoksa hiçbir şey gösterme
   if (!currentQuestion) return null;
 
-  // Props'tan gerekli bilgileri al
-  const { index, total, text, options, answered, timedOut } = currentQuestion;
-
-  // Bu soruyla ilgili en son cevap sonucunu bul (varsa)
+  const { index, total, text, options, timeLimit, answered, timedOut } = currentQuestion;
   const relevantResult = (lastAnswerResult && lastAnswerResult.questionIndex === index) ? lastAnswerResult : null;
-  const showFeedback = !!relevantResult; // Geri bildirim gösterilecek mi?
+  const showFeedback = !!relevantResult;
+  const progress = timeLimit > 0 ? (timeRemaining / timeLimit) * 100 : 0;
+  const progressColor = timeRemaining <= 5 ? "error" : (timeRemaining <= 10 ? "warning" : "primary");
 
   return (
-    <motion.div
-      key={index} // Soru değiştiğinde animasyon için key önemli
-      className="question-display"
-      initial={{ opacity: 0, y: 20 }} // Aşağıdan belirerek gelsin
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      <h3>
-         Soru {index + 1} / {total}
-         {/* Zamanlayıcı için görsel bir bar eklenebilir */}
-         <span className="timer">(Kalan Süre: {timeRemaining}sn)</span>
-      </h3>
-      <p className="question-text">{text}</p>
-      <div className="options">
-        {options.map((option, i) => (
-          // Seçenekler için de animasyon eklenebilir
-          <motion.button
-            key={i}
-            onClick={() => handleAnswerSubmit(option)}
-            disabled={answered || timedOut} // Cevaplandıysa veya süre dolduysa pasif
-            whileHover={{ scale: 1.05 }} // Üzerine gelince hafif büyüsün
-            whileTap={{ scale: 0.95 }}   // Tıklayınca hafif küçülsün
-            // Stil veya MUI Button buraya gelecek
-          >
-            {option}
-          </motion.button>
-        ))}
-      </div>
-      {/* Cevap sonucu göstergesi */}
-      {showFeedback && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className={`answer-feedback ${relevantResult.correct ? 'correct' : (relevantResult.timeout ? 'timeout' : 'incorrect')}`}
-        >
-          {relevantResult.timeout ? 'Süre Doldu!' : (relevantResult.correct ? `Doğru! +${relevantResult.pointsAwarded || 0} Puan` : 'Yanlış!')}
-          {/* Kombo mesajı (eğer varsa) */}
-          {(relevantResult.correct && relevantResult.combo > 1) ? ` (${relevantResult.combo}x Kombo! 🔥)` : ''}
-          {relevantResult.comboBroken ? ' (Kombo Bozuldu!)' : ''}
-        </motion.p>
-      )}
-    </motion.div>
+    <Paper elevation={3} sx={{ padding: { xs: 2, sm: 3 }, marginBottom: 2 }}> {/* Mobil için daha az padding */}
+      <motion.div
+        key={index}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        <Box sx={{ width: '100%', mb: 1 }}> {/* Bar için margin bottom */}
+          <LinearProgress variant="determinate" value={progress} color={progressColor} sx={{ height: '6px', borderRadius: '3px' }}/>
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Typography variant="overline" color="text.secondary"> Soru {index + 1} / {total} </Typography>
+          <Typography variant="overline" className="timer" sx={{ color: progressColor + '.main' }}> Kalan Süre: {timeRemaining}sn </Typography>
+        </Box>
+        <Typography variant="h5" component="p" sx={{ mb: 3, minHeight: '4em' }}> {text} </Typography>
+
+        {/* Seçenek Butonları - Grid v2 Düzeltmesi */}
+        <Grid container spacing={1.5}> {/* Ana container */}
+          {options.map((option, i) => (
+            // item prop'u yok, xs/sm doğrudan Grid üzerinde
+            <Grid xs={12} sm={6} key={i}> {/* Grid item için boyutlandırma */}
+              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} style={{ height: '100%' }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => handleAnswerSubmit(option)}
+                  disabled={answered || timedOut}
+                  size="large"
+                  sx={{ textTransform: 'none', justifyContent: 'flex-start', p: '12px 16px', textAlign: 'left', height: '100%' }}
+                >
+                  {option}
+                </Button>
+              </motion.div>
+            </Grid>
+          ))}
+        </Grid>
+
+        {showFeedback && ( /* Feedback */ <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}><Typography variant="subtitle1" component="p" color={relevantResult.correct ? 'success.main' : (relevantResult.timeout ? 'warning.main' : 'error.main')} sx={{ marginTop: 3, fontWeight: 'bold', textAlign: 'center' }}>{relevantResult.timeout ? 'Süre Doldu!' : (relevantResult.correct ? `Doğru! +${relevantResult.pointsAwarded || 0} Puan` : 'Yanlış!')}{(relevantResult.correct && relevantResult.combo > 1) ? ` (${relevantResult.combo}x Kombo! 🔥)` : ''}{relevantResult.comboBroken ? ' (Kombo Bozuldu!)' : ''}</Typography></motion.div> )}
+      </motion.div>
+    </Paper>
   );
 }
 

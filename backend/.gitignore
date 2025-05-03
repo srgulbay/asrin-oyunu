@@ -2,3 +2,48 @@
 .env
 node_modules/
 .vercel
+
+# Environment variables
+.env
+
+# Dependencies
+node_modules/
+
+# Optional NPM debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Optional editor directories
+.vscode
+.idea
+
+# Environment variables
+.env
+
+# Dependencies
+node_modules/
+
+# Optional NPM debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Optional editor directories
+.vscode
+.idea
+
+# Environment variables
+.env
+
+# Dependencies
+node_modules/
+
+# Optional NPM debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Optional editor directories
+.vscode
+.idea

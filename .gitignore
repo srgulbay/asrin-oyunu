@@ -1,1 +1,21 @@
 .vercel
+# OS generated files
+.DS_Store
+*.pem
+
+# Log files
+*.log
+
+# IDE files (already in sub-gitignores but doesn't hurt)
+.vscode
+.idea
+# OS generated files
+.DS_Store
+*.pem
+
+# Log files
+*.log
+
+# IDE files (already in sub-gitignores but doesn't hurt)
+.vscode
+.idea

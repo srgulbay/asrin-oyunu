@@ -1,30 +1,45 @@
 import React from 'react';
-// PlayerList sidebar'da olduğu için buradan kaldırıldı.
-// AnnouncerLog da sidebar'da.
-// Highlight'lar da kaldırıldı, AnnouncerLog kullanılacak.
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper'; // Eklendi
+import Stack from '@mui/material/Stack'; // Eklendi
+import Typography from '@mui/material/Typography'; // Eklendi
+import CircularProgress from '@mui/material/CircularProgress'; // Yükleniyor ikonu
 
-// Props: players, handlePlayerReady, isPlayerReady, waitingMessage, currentSocketId
 function WaitingLobby({ players, handlePlayerReady, isPlayerReady, waitingMessage, currentSocketId }) {
-  // Kendi player objeni bul (butonu disable etmek için vs. kullanılabilir)
-  const myPlayer = players.find(p => p.id === currentSocketId);
-  // isPlayerReady prop'u App.jsx'ten geldiği için myPlayer'a gerek kalmayabilir.
-
+  // PlayerList sidebar'da gösteriliyor
   return (
-    <div className="waiting-section">
-      <h2>Oyuncular Bekleniyor...</h2>
-      {/* PlayerList burada değil, sidebar'da gösterilecek */}
-      <button
-        onClick={handlePlayerReady}
-        // Zaten hazırsa veya oyun başlamışsa butonu gizle/disable et (App.jsx hallediyor)
-        disabled={isPlayerReady}
-        className={`ready-button ${isPlayerReady ? 'ready' : ''}`}
-        // Stil veya MUI Button buraya gelecek
-      >
-        {isPlayerReady ? 'Hazırsın!' : 'Hazırım'}
-      </button>
-      <p>{waitingMessage}</p>
-      {/* Highlight mesajları yerine AnnouncerLog kullanılacak (sidebar'da) */}
-    </div>
+    <Paper
+        elevation={3}
+        sx={{
+            padding: { xs: 2, sm: 3 },
+            textAlign: 'center',
+            minHeight: '200px', // İçerik azken bile biraz yüksek dursun
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center' // İçeriği dikeyde ortala
+        }}
+    >
+      <Stack spacing={2} alignItems="center">
+        <Typography variant="h5" component="h2" gutterBottom>
+            Oyuncular Bekleniyor...
+        </Typography>
+        <CircularProgress size={30} sx={{ my: 1 }} /> {/* Bekleme animasyonu */}
+        <Typography variant="body1" color="text.secondary" sx={{ minHeight: '1.5em' }}>
+            {waitingMessage || 'Diğer oyuncuların hazır olması bekleniyor...'}
+        </Typography>
+        <Button
+          variant="contained"
+          onClick={handlePlayerReady}
+          disabled={isPlayerReady}
+          color={isPlayerReady ? "success" : "primary"}
+          size="large"
+          sx={{ minWidth: '150px' }} // Buton biraz geniş olsun
+        >
+          {isPlayerReady ? 'Hazırsın!' : 'Hazırım'}
+        </Button>
+      </Stack>
+    </Paper>
   );
 }
 
