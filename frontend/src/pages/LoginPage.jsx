@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import { Box, Button, Container, Paper, TextField, Typography, Link, CircularProgress, Alert } from '@mui/material';
+// --- MUI Imports ---
+import { Box, Button, Container, Paper, TextField, Typography, Link, Grid, CircularProgress, Alert } from '@mui/material'; // Grid importu EKLENDİ
+// ------------------
 import { signInWithEmailAndPassword } from "firebase/auth"; // Firebase importları
 import { auth } from '../firebaseConfig';
-import useUserStore from '../store/userStore'; // Zustand store
+// import useUserStore from '../store/userStore'; // Giriş sonrası state güncellemesi onAuthStateChanged ile yapılıyor
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -11,24 +13,30 @@ function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const setUser = useUserStore((state) => state.setUser); // Zustand'dan setUser action'ı
+  // const setUser = useUserStore((state) => state.setUser);
 
   const handleLogin = async (event) => {
     event.preventDefault(); // Formun sayfayı yenilemesini engelle
-    setError(''); // Önceki hataları temizle
-    setLoading(true); // Yükleniyor durumunu başlat
+    setError('');
+    setLoading(true);
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      // Başarılı giriş - setUser (onAuthStateChanged zaten yapacak ama burada da yapabiliriz)
-      // setUser(userCredential.user); // Zustand store'unu güncelle
       console.log('Giriş başarılı:', userCredential.user.email);
-      navigate('/'); // Başarılı giriş sonrası ana sayfaya yönlendir
+      // Başarılı giriş sonrası ana sayfaya yönlendir (onAuthStateChanged state'i güncelleyecek)
+      navigate('/');
     } catch (err) {
       console.error("Firebase giriş hatası:", err);
-      setError("Giriş başarısız oldu. E-posta veya şifrenizi kontrol edin."); // Kullanıcı dostu hata mesajı
+      // Kullanıcı dostu hata mesajları
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+          setError("E-posta veya şifre hatalı.");
+      } else if (err.code === 'auth/invalid-email') {
+           setError('Lütfen geçerli bir e-posta adresi girin.');
+      } else {
+           setError("Giriş başarısız oldu. Lütfen tekrar deneyin.");
+      }
     } finally {
-      setLoading(false); // Yükleniyor durumunu bitir
+      setLoading(false);
     }
   };
 
@@ -66,7 +74,7 @@ function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
           />
-          {/* TODO: Şifremi unuttum? */}
+          {/* TODO: Şifremi unuttum linki eklenebilir */}
           <Button
             type="submit"
             fullWidth
@@ -76,6 +84,7 @@ function LoginPage() {
           >
             {loading ? <CircularProgress size={24} color="inherit" /> : 'Giriş Yap'}
           </Button>
+          {/* Grid importu yapıldığı için bu kısım çalışmalı */}
           <Grid container justifyContent="flex-end">
             <Grid item>
               <Link component={RouterLink} to="/register" variant="body2">
