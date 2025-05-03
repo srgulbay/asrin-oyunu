@@ -2,9 +2,12 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
+import CssBaseline from '@mui/material/CssBaseline'; // MUI CssBaseline importu
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  // <React.StrictMode> // Bu satırları yorumladık veya sildik
+  // StrictMode etiketleri kaldırıldı!
+  <>
+    <CssBaseline />
     <App />
-  // </React.StrictMode>, // Bu satırları yorumladık veya sildik
+  </>
 )
