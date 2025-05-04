@@ -38,6 +38,7 @@ const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
 
+
 function ProtectedRoute({ children }) {
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
   const isLoading = useUserStore((state) => state.isLoading);
@@ -65,6 +66,7 @@ function GuestRoute({ children }) {
   }
   return children;
 }
+
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -165,10 +167,15 @@ function App() {
 
   const handleJoinTournament = useCallback(() => {
       const joinName = user?.displayName || user?.email || (user?.uid ? `Oyuncu_${user.uid.substring(0,4)}` : 'Bilinmeyen');
-      // --- GÜNCELLEME: Grade bilgisini gönder ---
-      const userGrade = user?.grade; // Zustand'dan al
+      const userGrade = user?.grade;
+      const userUid = user?.uid; // <-- UID burada alınıyor
+
       if (socket && isConnected && user) {
-          socket.emit('join_tournament', { name: joinName, grade: userGrade }); // grade eklendi
+          socket.emit('join_tournament', {
+              name: joinName,
+              grade: userGrade,
+              uid: userUid // <-- UID backend'e gönderiliyor
+          });
           setWaitingMessage('Sunucuya katılım isteği gönderildi...');
           setIsPlayerReady(false);
       } else if (!user){
@@ -176,7 +183,7 @@ function App() {
       } else {
           setConnectionMessage('Önce sunucuya bağlanmalısınız.');
       }
-  }, [socket, isConnected, user]); // user dependency olarak eklendi
+  }, [socket, isConnected, user]);
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -232,7 +239,7 @@ function App() {
        }
        if (gameState === GAME_STATES.WAITING_TOURNAMENT) { return <WaitingLobby players={players} handlePlayerReady={handlePlayerReady} isPlayerReady={isPlayerReady} waitingMessage={waitingMessage} currentSocketId={socket?.id}/>; }
        if (gameState === GAME_STATES.TOURNAMENT_RUNNING) { return <GameInterface currentQuestion={currentQuestion} timeRemaining={timeRemaining} handleAnswerSubmit={handleAnswerSubmit} lastAnswerResult={lastAnswerResult}/>; }
-       if (gameState === GAME_STATES.GAME_OVER) { return <ResultsScreen gameResults={gameResults} waitingMessage={waitingMessage} currentSocketId={socket?.id}/>; }
+       if (gameState === GAME_STATES.GAME_OVER) { return <ResultsScreen gameResults={gameResults} waitingMessage={waitingMessage} />; } // currentSocketId kaldırıldı
 
        return <Box sx={{ display: 'flex', justifyContent: 'center', padding: 5 }}><CircularProgress /></Box>;
   };
