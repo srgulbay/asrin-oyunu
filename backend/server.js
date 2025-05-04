@@ -44,7 +44,7 @@ const GAME_MODES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOU
 let currentGameState = GAME_MODES.IDLE;
 let tournamentPlayers = new Map();
 const TOURNAMENT_ROOM = 'global_tournament_room';
-const MIN_PLAYERS_TO_INFORM = 1; // Bilgilendirme için min oyuncu (eskisi gibi)
+const MIN_PLAYERS_TO_INFORM = 1;
 
 let gameQuestions = [];
 let currentQuestionIndex = -1;
@@ -58,24 +58,21 @@ const MAX_TIME_BONUS = 500;
 const COMBO_BONUS_MULTIPLIER = 50;
 const MAX_COMBO_BONUS = 300;
 
-// --- YENİ: Zorluk Ayarlama Parametreleri ---
-const GRADE_DIFFICULTY_FACTOR = 0.10; // Her sınıf farkı için %10 ayarlama
-const MAX_DIFFICULTY_BONUS_MULTIPLIER = 1.5; // Maksimum %50 bonus
-const MIN_DIFFICULTY_PENALTY_MULTIPLIER = 0.5; // Minimum %50 puan (yani %50 azaltma)
-// -----------------------------------------
+const GRADE_DIFFICULTY_FACTOR = 0.10;
+const MAX_DIFFICULTY_BONUS_MULTIPLIER = 1.5;
+const MIN_DIFFICULTY_PENALTY_MULTIPLIER = 0.5;
+const SIGNIFICANT_GRADE_DIFFERENCE = 3; // <-- YENİ: Özel mesaj için eşik
 
-// --- YENİ: Yardımcı Fonksiyon: Sınıfı Sayıya Çevir ---
 function getNumericGrade(gradeString) {
-    if (!gradeString) return null; // Veya varsayılan bir değer, örn: 5?
+    if (!gradeString) return null;
     if (gradeString.toLowerCase() === 'okul öncesi') return 0;
     const gradeNum = parseInt(gradeString, 10);
     return isNaN(gradeNum) ? null : gradeNum;
 }
-// -----------------------------------------------
 
 function getSortedPlayerList() {
     return Array.from(tournamentPlayers.entries())
-        .map(([id, data]) => ({ id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade })) // grade eklendi (opsiyonel)
+        .map(([id, data]) => ({ id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade }))
         .sort((a, b) => b.score - a.score);
 }
 
@@ -132,8 +129,6 @@ async function startTournament() {
     currentGameState = GAME_MODES.TOURNAMENT_RUNNING;
 
     try {
-        // TODO: Buradaki soru çekme mantığını oyuncu sınıflarına göre filtreleyecek şekilde güncelle
-        // Şimdilik örnek sorular veya rastgele çekme devam ediyor.
         const sampleQuestions = [
             { id: 1, question_text: '1+1 Kaç Yapar?', options: ['1', '2', '3', '4'], correct_answer: '2', grade: '1', branch: 'Matematik' },
             { id: 2, question_text: 'Türkiye\'nin başkenti?', options: ['İstanbul', 'İzmir', 'Ankara', 'Bursa'], correct_answer: 'Ankara', grade: '5', branch: 'Sosyal' },
@@ -146,11 +141,7 @@ async function startTournament() {
             console.warn("UYARI: DB yok, örnek sorular kullanılıyor.");
             gameQuestions = sampleQuestions;
         } else {
-            // const playerGrades = allPlayers.map(p => getNumericGrade(p.grade)).filter(g => g !== null);
-            // const minGrade = playerGrades.length > 0 ? Math.min(...playerGrades) : 1;
-            // const maxGrade = playerGrades.length > 0 ? Math.max(...playerGrades) : 12;
-            // const result = await pool.query('SELECT id, question_text, options, correct_answer, grade, branch FROM questions WHERE grade >= $1 AND grade <= $2 ORDER BY RANDOM() LIMIT 5', [minGrade, maxGrade]); // VEYA DAHA FARKLI BİR STRATEJİ
-            const result = await pool.query('SELECT id, question_text, options, correct_answer, grade, branch FROM questions ORDER BY RANDOM() LIMIT 5'); // Şimdilik rastgele 5 soru
+            const result = await pool.query('SELECT id, question_text, options, correct_answer, grade, branch FROM questions ORDER BY RANDOM() LIMIT 5');
 
             if (result.rows.length === 0) {
                 console.warn("UYARI: Veritabanında uygun soru bulunamadı, örnek sorular kullanılıyor.");
@@ -188,14 +179,14 @@ function sendNextQuestion() {
     }
 
     const question = gameQuestions[currentQuestionIndex];
-    if (!question || !question.question_text || !question.options || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined') { // grade kontrolü eklendi
+    if (!question || !question.question_text || !question.options || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined') {
         console.error("HATA: Geçersiz soru formatı veya eksik sınıf bilgisi!", question);
         sendAnnouncerMessage("Sıradaki soru yüklenirken hata oluştu!", "error");
         endTournament();
         return;
     }
 
-    const questionData = { index: currentQuestionIndex, total: gameQuestions.length, text: question.question_text, options: question.options, timeLimit: QUESTION_TIME_LIMIT, grade: question.grade, branch: question.branch }; // grade ve branch gönderiliyor
+    const questionData = { index: currentQuestionIndex, total: gameQuestions.length, text: question.question_text, options: question.options, timeLimit: QUESTION_TIME_LIMIT, grade: question.grade, branch: question.branch };
     const questionAnnounceText = `Soru ${currentQuestionIndex + 1}/${gameQuestions.length}: ${question.question_text}`;
 
     setTimeout(() => {
@@ -203,13 +194,13 @@ function sendNextQuestion() {
         console.log(`Soru ${currentQuestionIndex + 1}/${gameQuestions.length} (Sınıf: ${question.grade}) gönderiliyor...`);
         questionStartTime = Date.now();
         io.to(TOURNAMENT_ROOM).emit('new_question', questionData);
-    }, 1000); // Özet mesajlarından sonra 1sn bekle
+    }, 1000);
 
     questionTimer = setTimeout(() => {
         console.log(`Soru ${currentQuestionIndex + 1} için süre doldu.`);
         io.to(TOURNAMENT_ROOM).emit('question_timeout', { questionIndex: currentQuestionIndex });
         sendNextQuestion();
-    }, QUESTION_TIME_LIMIT * 1000 + 1000); // Soru gösterme + Süre
+    }, QUESTION_TIME_LIMIT * 1000 + 1000);
 }
 
 function endTournament() {
@@ -239,7 +230,7 @@ io.on('connection', (socket) => {
 
   socket.on('join_tournament', (data) => {
     const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`;
-    const playerGrade = data?.grade; // --- YENİ: Sınıf bilgisini al ---
+    const playerGrade = data?.grade;
 
     if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.GAME_OVER ) {
         socket.emit('error_message', { message: 'Devam eden oyun var veya yeni bitti.' });
@@ -247,22 +238,20 @@ io.on('connection', (socket) => {
     }
     if (tournamentPlayers.has(socket.id)) {
         console.log(`${playerName} zaten listede.`);
-        socket.join(TOURNAMENT_ROOM); // Odada olduğundan emin ol
+        socket.join(TOURNAMENT_ROOM);
         return;
     }
 
     console.log(`Oyuncu ${socket.id} (${playerName}, Sınıf: ${playerGrade || 'Belirtilmemiş'}) turnuvaya katılıyor.`);
     socket.join(TOURNAMENT_ROOM);
 
-    // --- GÜNCELLEME: Oyuncu verisine sınıfı ekle ---
     tournamentPlayers.set(socket.id, {
         name: playerName,
         score: 0,
         combo: 0,
         isReady: false,
-        grade: playerGrade // Sınıf bilgisi eklendi
+        grade: playerGrade
     });
-    // ------------------------------------------
 
     if (currentGameState === GAME_MODES.IDLE) {
         currentGameState = GAME_MODES.WAITING_TOURNAMENT;
@@ -315,6 +304,9 @@ io.on('connection', (socket) => {
     let correct = false;
     let comboBroken = false;
     let currentCombo = player.combo || 0;
+    let adjustedBaseScore = BASE_SCORE; // Zorluk ayarı sonrası temel puan
+    let gradeDifference = 0; // Hesaplamak için
+    let difficultyBonusPoints = 0; // Sadece zorluktan gelen bonus
 
     if (data.answer === correctAnswer) {
         correct = true;
@@ -323,26 +315,31 @@ io.on('connection', (socket) => {
         player.combo = currentCombo + 1;
         const comboBonus = Math.min(MAX_COMBO_BONUS, Math.max(0, player.combo - 1) * COMBO_BONUS_MULTIPLIER);
 
-        // --- YENİ: Zorluk Ayarlı Puan Hesaplama ---
         const playerGradeNum = getNumericGrade(player.grade);
         const questionGradeNum = getNumericGrade(question.grade);
-        let adjustedBaseScore = BASE_SCORE; // Varsayılan
 
         if (playerGradeNum !== null && questionGradeNum !== null) {
-            const gradeDifference = questionGradeNum - playerGradeNum;
+            gradeDifference = questionGradeNum - playerGradeNum;
             const difficultyMultiplier = 1.0 + (gradeDifference * GRADE_DIFFICULTY_FACTOR);
             const cappedMultiplier = Math.max(MIN_DIFFICULTY_PENALTY_MULTIPLIER, Math.min(difficultyMultiplier, MAX_DIFFICULTY_BONUS_MULTIPLIER));
             adjustedBaseScore = BASE_SCORE * cappedMultiplier;
+            difficultyBonusPoints = Math.max(0, Math.round(adjustedBaseScore - BASE_SCORE)); // Sadece pozitif fark bonus sayılır
             console.log(`[Puan Ayarlama] OyuncuSınıf: ${playerGradeNum}, SoruSınıf: ${questionGradeNum}, Fark: ${gradeDifference}, Çarpan: ${cappedMultiplier.toFixed(2)}, AyarlanmışPuan: ${Math.round(adjustedBaseScore)}`);
         } else {
             console.warn(`[Puan Ayarlama] Sınıf bilgisi eksik veya geçersiz. Oyuncu: ${player.grade}, Soru: ${question.grade}. Standart puan kullanılıyor.`);
         }
 
         pointsAwarded = Math.round(adjustedBaseScore + timeBonus + comboBonus);
-        // ------------------------------------------
 
         player.score += pointsAwarded;
         console.log(`Doğru! ${player.name} (${socket.id}) +${pointsAwarded}p. Skor: ${player.score}, Kombo: ${player.combo}`);
+
+        // --- YENİ: Özel Zorluk Başarısı Mesajı ---
+        if (gradeDifference >= SIGNIFICANT_GRADE_DIFFERENCE && difficultyBonusPoints > 0) {
+             setTimeout(() => sendAnnouncerMessage(`İnanılmaz! ${player.name}, ${gradeDifference} sınıf üstü soruyu doğru cevapladı! +${difficultyBonusPoints} zorluk bonusu kazandı! 🚀`, "bonus"), 500);
+        }
+        // -----------------------------------------
+
         if (player.combo >= 2) { setTimeout(()=> sendAnnouncerMessage(`${player.name} ${player.combo}x Kombo! 💪 +${comboBonus} bonus!`, "combo"), 300); }
     } else {
         comboBroken = player.combo > 0;
