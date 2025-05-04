@@ -16,7 +16,7 @@ import InstallMobileIcon from '@mui/icons-material/InstallMobile';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import LogoutIcon from '@mui/icons-material/Logout';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle'; // Profil ikonu eklendi
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
 import JoinScreen from './components/JoinScreen';
 import WaitingLobby from './components/WaitingLobby';
@@ -26,7 +26,7 @@ import PlayerList from './components/PlayerList';
 import AnnouncerLog from './components/AnnouncerLog';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
-import ProfilePage from './pages/ProfilePage'; // Profil sayfası import edildi
+import ProfilePage from './pages/ProfilePage';
 import createAppTheme from './theme';
 
 import { auth } from './firebaseConfig';
@@ -37,7 +37,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
-
 
 function ProtectedRoute({ children }) {
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
@@ -66,7 +65,6 @@ function GuestRoute({ children }) {
   }
   return children;
 }
-
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -167,8 +165,10 @@ function App() {
 
   const handleJoinTournament = useCallback(() => {
       const joinName = user?.displayName || user?.email || (user?.uid ? `Oyuncu_${user.uid.substring(0,4)}` : 'Bilinmeyen');
+      // --- GÜNCELLEME: Grade bilgisini gönder ---
+      const userGrade = user?.grade; // Zustand'dan al
       if (socket && isConnected && user) {
-          socket.emit('join_tournament', { name: joinName });
+          socket.emit('join_tournament', { name: joinName, grade: userGrade }); // grade eklendi
           setWaitingMessage('Sunucuya katılım isteği gönderildi...');
           setIsPlayerReady(false);
       } else if (!user){
@@ -176,7 +176,7 @@ function App() {
       } else {
           setConnectionMessage('Önce sunucuya bağlanmalısınız.');
       }
-  }, [socket, isConnected, user]);
+  }, [socket, isConnected, user]); // user dependency olarak eklendi
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -271,7 +271,7 @@ function App() {
            {showInstallButton && installPromptEvent && ( <Button fullWidth variant="outlined" onClick={handleInstallClick} startIcon={<InstallMobileIcon />} size="small" sx={{ mb: 2 }}> Uygulamayı Yükle </Button> )}
            <Grid container spacing={2} alignItems="flex-start">
                {showSidebars && (
-                 <Grid xs={12} md={3} order={{ xs: 2, md: 1 }}>
+                 <Grid item xs={12} md={3} order={{ xs: 2, md: 1 }}>
                    <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
                        <Paper variant="outlined" sx={{ p: 1, height: '100%' }}>
                            <PlayerList players={players} gameState={gameState} currentSocketId={socket?.id} />
@@ -279,7 +279,7 @@ function App() {
                    </Box>
                  </Grid>
                 )}
-               <Grid xs={12} md={ showSidebars ? 6 : 12 } order={{ xs: 1, md: 2 }} >
+               <Grid item xs={12} md={ showSidebars ? 6 : 12 } order={{ xs: 1, md: 2 }} >
                    <Box>
                        <Routes>
                            <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
@@ -308,7 +308,7 @@ function App() {
                    </Box>
                 </Grid>
                {showSidebars && (
-                 <Grid xs={12} md={3} order={{ xs: 3, md: 3 }}>
+                 <Grid item xs={12} md={3} order={{ xs: 3, md: 3 }}>
                    <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
                        <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                            <AnnouncerLog announcerLog={announcerLog} />
