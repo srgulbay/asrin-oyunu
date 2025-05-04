@@ -31,6 +31,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
+import AdminQuestionListPage from './pages/admin/AdminQuestionListPage';
 import createAppTheme from './theme';
 
 import { auth } from './firebaseConfig';
@@ -65,21 +66,11 @@ function AdminRoute({ children }) {
     const isLoading = useUserStore((state) => state.isLoading);
     const isAdmin = user?.roles?.includes('admin');
 
-    useEffect(() => {
-        if (!isLoading && isLoggedIn && !isAdmin) {
-             console.log(">>> AdminRoute: Yetkisiz erişim denemesi.", user?.email);
-        }
-    }, [isLoading, isLoggedIn, isAdmin, user]);
+    useEffect(() => { if (!isLoading && isLoggedIn && !isAdmin) { console.log(">>> AdminRoute: Yetkisiz erişim denemesi.", user?.email); } }, [isLoading, isLoggedIn, isAdmin, user]);
 
-    if (isLoading) {
-       return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
-    }
-    if (!isLoggedIn) {
-       return <Navigate to="/login" state={{ from: '/admin' }} replace />;
-    }
-    if (!isAdmin) {
-        return <Navigate to="/" replace />;
-    }
+    if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
+    if (!isLoggedIn) { return <Navigate to="/login" state={{ from: '/admin' }} replace />; }
+    if (!isAdmin) { return <Navigate to="/" replace />; }
     return children;
 }
 
@@ -142,7 +133,6 @@ function App() {
       socketInstance.off('tournament_state_update'); socketInstance.off('new_question'); socketInstance.off('question_timeout');
       socketInstance.off('answer_result'); socketInstance.off('game_over'); socketInstance.off('waiting_update');
       socketInstance.off('announcer_message');
-
       const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log(">>> Socket Bağlandı! ID:", socketInstance.id);};
       const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);};
       const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log(">>> Socket Disconnect sebebi:", reason); };
@@ -156,34 +146,23 @@ function App() {
       const handleGameOver = (data) => { console.log(">>> game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
       const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
       const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
-
-      socketInstance.on('connect', handleConnect);
-      socketInstance.on('connect_error', handleConnectError);
-      socketInstance.on('disconnect', handleDisconnect);
-      socketInstance.on('error_message', handleErrorMessage);
-      socketInstance.on('reset_game', handleResetGame);
-      socketInstance.on('initial_state', handleInitialState);
-      socketInstance.on('tournament_state_update', handleStateUpdate);
-      socketInstance.on('new_question', handleNewQuestion);
-      socketInstance.on('question_timeout', handleQuestionTimeout);
-      socketInstance.on('answer_result', handleAnswerResult);
-      socketInstance.on('game_over', handleGameOver);
-      socketInstance.on('waiting_update', handleWaitingUpdate);
+      socketInstance.on('connect', handleConnect); socketInstance.on('connect_error', handleConnectError); socketInstance.on('disconnect', handleDisconnect);
+      socketInstance.on('error_message', handleErrorMessage); socketInstance.on('reset_game', handleResetGame); socketInstance.on('initial_state', handleInitialState);
+      socketInstance.on('tournament_state_update', handleStateUpdate); socketInstance.on('new_question', handleNewQuestion); socketInstance.on('question_timeout', handleQuestionTimeout);
+      socketInstance.on('answer_result', handleAnswerResult); socketInstance.on('game_over', handleGameOver); socketInstance.on('waiting_update', handleWaitingUpdate);
       socketInstance.on('announcer_message', handleAnnouncerMessage);
-
   }, [currentQuestion, gameState]);
 
   useEffect(() => {
     console.log(`>>> Socket Bağlantı KONTROL useEffect: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
-    let socketInstance = null; // Bu scope'a özel instance
-
+    let socketInstance = null;
     if (!isLoading && isLoggedIn) {
         const currentUser = auth.currentUser;
         if (currentUser && (!socketRef.current || !socketRef.current.connected)) {
              console.log(`%c>>> Socket bağlantısı kuruluyor (useEffect - No Token): ${SERVER_URL}`, 'color: green; font-weight: bold;');
              socketInstance = io(SERVER_URL, { transports: ['websocket', 'polling'] });
-             setSocket(socketInstance); // State'i ayarla
-             setupSocketListeners(socketInstance); // Listener'ları bağla
+             setSocket(socketInstance);
+             setupSocketListeners(socketInstance);
         }
     } else if (!isLoggedIn && socketRef.current) {
         console.log(">>> Kullanıcı çıkış yapmış, mevcut socket bağlantısı kesiliyor.");
@@ -191,28 +170,18 @@ function App() {
         setSocket(null);
         setIsConnected(false);
     }
-
     return () => {
         console.log(`>>> Socket Bağlantı useEffect TEMİZLENİYOR (isLoggedIn=${isLoggedIn}, isLoading=${isLoading})`);
-        // Eğer bu effect temizlenirken *bu* effect tarafından bir socket oluşturulduysa onu kapat
-        if (socketInstance && socketInstance !== socketRef.current) {
-             console.log(">>> Cleanup: Bu effect'te oluşturulan yeni socket kapatılıyor.");
-             socketInstance.disconnect();
-         } else if (socketRef.current && !isLoggedIn) {
-             // Zaten yukarıda !isLoggedIn durumunda kapatılıyor, tekrar gerek yok
-         } else if (socketRef.current && isLoading) {
-             // isLoading true olduğunda effect tekrar çalışacak, o zaman kapatılabilir
-             // console.log(">>> Cleanup: Yükleme başladığı için socket kapatılıyor (opsiyonel).");
-             // socketRef.current.disconnect(); setSocket(null); setIsConnected(false);
-         }
+         if (socketInstance && socketInstance !== socketRef.current) {
+              console.log(">>> Cleanup: Bu effect'te oluşturulan yeni socket kapatılıyor.");
+              socketInstance.disconnect();
+          }
     };
   }, [isLoggedIn, isLoading, setupSocketListeners]);
 
-  useEffect(() => {
-    socketRef.current = socket;
- }, [socket]);
+  useEffect(() => { socketRef.current = socket; }, [socket]);
 
- const handleJoinTournament = useCallback(async () => {
+  const handleJoinTournament = useCallback(async () => {
     console.log('>>> handleJoinTournament ÇAĞRILDI!');
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -234,7 +203,7 @@ function App() {
         console.log(`>>> Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
         alert('Sunucu bağlantısı bekleniyor veya kurulamadı...');
     }
-}, [socket, isConnected, user]);
+  }, [socket, isConnected, user]);
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -335,9 +304,8 @@ function App() {
                 <Route path="/profile" element={ <ProtectedRoute> <ProfilePage /> </ProtectedRoute> }/>
                 <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
                      <Route index element={<AdminDashboardPage />} />
-                     {/* Placeholder routes */}
+                     <Route path="questions" element={<AdminQuestionListPage />} />
                      {/* <Route path="users" element={<Typography>Kullanıcı Yönetimi</Typography>} /> */}
-                     {/* <Route path="questions" element={<Typography>Soru Yönetimi</Typography>} /> */}
                      {/* <Route path="settings" element={<Typography>Ayarlar</Typography>} /> */}
                 </Route>
                  <Route path="/" element={

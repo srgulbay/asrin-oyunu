@@ -13,17 +13,17 @@ function AdminLayout() {
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/admin' },
     { text: 'Kullanıcılar', icon: <PeopleIcon />, path: '/admin/users' },
     { text: 'Sorular', icon: <QuizIcon />, path: '/admin/questions' },
-    { text: 'Ayarlar', icon: <SettingsIcon />, path: '/admin/settings' },
+    // { text: 'Ayarlar', icon: <SettingsIcon />, path: '/admin/settings' }, // Henüz eklemedik
   ];
 
   return (
-    <Box sx={{ display: 'flex' }}>
+    <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}> {/* AppBar yüksekliğini çıkar */}
       <Drawer
         variant="permanent"
         sx={{
           width: drawerWidth,
           flexShrink: 0,
-          [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box', position: 'relative' }, // Relative position for layout
+          [`& .MuiDrawer-paper`]: { width: drawerWidth, boxSizing: 'border-box', position: 'relative', height: 'auto' },
         }}
       >
         <Toolbar>
@@ -45,9 +45,8 @@ function AdminLayout() {
       </Drawer>
       <Box
         component="main"
-        sx={{ flexGrow: 1, bgcolor: 'background.default', p: 3, height: 'calc(100vh - 64px)', overflowY: 'auto' }} // 64px AppBar yüksekliği için
+        sx={{ flexGrow: 1, bgcolor: 'background.default', p: 3, overflowY: 'auto' }}
       >
-        {/* İçerik buraya gelecek (alt route'lar) */}
         <Outlet />
       </Box>
     </Box>
