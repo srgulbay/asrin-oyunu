@@ -18,7 +18,7 @@ import Toolbar from '@mui/material/Toolbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
-import JoinScreen from './components/JoinScreen';
+import JoinScreen from './components/JoinScreen'; // JoinScreen'i şimdilik kullanmıyoruz ama import kalsın
 import WaitingLobby from './components/WaitingLobby';
 import GameInterface from './components/GameInterface';
 import ResultsScreen from './components/ResultsScreen';
@@ -37,7 +37,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
-
 
 function ProtectedRoute({ children }) {
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
@@ -235,8 +234,17 @@ function App() {
             return (
                 <Paper elevation={3} sx={{p:3, textAlign:'center'}}>
                    <Typography variant="h5">Turnuvaya Katılmaya Hazır Mısın?</Typography>
-                    <Button variant="contained" size="large" onClick={handleJoinTournament} sx={{mt: 2}}>
-                       Turnuvaya Katıl
+                    <Button
+                       variant="contained"
+                       size="large"
+                       onClick={handleJoinTournament}
+                       sx={{mt: 2}}
+                       // --- YENİ: Buton Deaktif Etme Mantığı ---
+                       disabled={isLoading || !isConnected || !user?.uid}
+                       // ------------------------------------
+                    >
+                       {/* Buton metni de duruma göre değişebilir */}
+                       {isLoading ? 'Yükleniyor...' : (!isConnected ? 'Bağlanıyor...' : (!user?.uid ? 'Kullanıcı Bekleniyor...' : 'Turnuvaya Katıl'))}
                     </Button>
                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{waitingMessage}</Typography>
                 </Paper>
