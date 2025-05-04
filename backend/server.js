@@ -106,7 +106,9 @@ function getNumericGrade(gradeString) {
 
 function getSortedPlayerList() {
     return Array.from(tournamentPlayers.entries())
-        .map(([id, data]) => ({ id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade, uid: data.uid }))
+        .map(([id, data]) => ({
+             id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade, uid: data.uid
+        }))
         .sort((a, b) => b.score - a.score);
 }
 
@@ -126,7 +128,6 @@ function sendAnnouncerMessage(message, type = 'info') {
 }
 
 function generateQuestionSummaryAnnouncements(qIndex) {
-    // ... (Bu fonksiyon aynı kalabilir) ...
     if (qIndex < 0 || qIndex >= gameQuestions.length) return;
     if (currentQuestionAnswers.size === 0 && currentGameState === GAME_MODES.TOURNAMENT_RUNNING) { sendAnnouncerMessage(`Soru ${qIndex + 1} için kimse cevap vermedi! 🤷`, "warning"); return; }
     if (currentQuestionAnswers.size === 0) return;
@@ -179,19 +180,13 @@ async function startTournament() {
             }
         }
         currentQuestionIndex = -1;
-        // --- YENİ: Başarı takibi için verileri sıfırla ---
         tournamentPlayers.forEach(player => {
              player.score = 0; player.combo = 0; player.isReady = false;
              player.currentTournamentXP = 0; player.currentTournamentResources = { ...DEFAULT_RESOURCES };
-             player.maxComboAchieved = 0;
-             player.minCorrectAnswerTimeMs = Infinity;
-             player.maxDifficultyBonusAchieved = 0;
-             player.correctAnswerCount = 0;
-             player.totalAnswerCount = 0; // Süre dolmadan verilen cevap sayısı
-             player.totalCorrectAnswerTimeMs = 0; // Ortalama süre için
-             player.bonusResourcesEarned = 0; // Bonus kaynak sayısı
+             player.maxComboAchieved = 0; player.minCorrectAnswerTimeMs = Infinity;
+             player.maxDifficultyBonusAchieved = 0; player.correctAnswerCount = 0;
+             player.totalAnswerCount = 0; player.totalCorrectAnswerTimeMs = 0; player.bonusResourcesEarned = 0;
         });
-        // ----------------------------------------------
         broadcastTournamentState();
         setTimeout(sendNextQuestion, 3000);
     } catch (error) {
@@ -241,7 +236,6 @@ async function endTournament() {
     }
     console.log("Turnuva bitti!");
     currentGameState = GAME_MODES.GAME_OVER;
-
     const finalPlayerData = Array.from(tournamentPlayers.entries());
     const sortedFinalPlayerData = finalPlayerData
         .filter(([id, data]) => data.uid)
@@ -249,31 +243,24 @@ async function endTournament() {
 
     const detailedResults = sortedFinalPlayerData.map(([id, data], index) => {
         const rank = index + 1;
-        // --- YENİ: Başarıları Hesapla ---
         const achievements = [];
         if (rank === 1 && sortedFinalPlayerData.length > 1) achievements.push({ id: 'winner', name: 'Şampiyon!', value: '1.' });
         else if (rank <= 3 && sortedFinalPlayerData.length >= 3) achievements.push({ id: 'top3', name: 'Podyum!', value: `${rank}.` });
-
         if (data.maxComboAchieved >= 5) achievements.push({ id: 'combo_master', name: 'Kombo Ustası', value: `${data.maxComboAchieved}x` });
         else if (data.maxComboAchieved >= 3) achievements.push({ id: 'combo_streak', name: 'Kombo Serisi', value: `${data.maxComboAchieved}x` });
-
         if (data.minCorrectAnswerTimeMs <= 3000 && data.minCorrectAnswerTimeMs !== Infinity) achievements.push({ id: 'super_sonic', name: 'Süper Sonik', value: `<3sn` });
         else if (data.minCorrectAnswerTimeMs <= 7000 && data.minCorrectAnswerTimeMs !== Infinity) achievements.push({ id: 'quick_reflex', name: 'Hızlı Refleks', value: `<7sn` });
-
-        if (data.maxDifficultyBonusAchieved > BASE_SCORE * 0.3) achievements.push({ id: 'giant_slayer', name: 'Dev Avcısı', value: `+${data.maxDifficultyBonusAchieved}p` }); // %30'dan fazla zorluk bonusu
-
+        if (data.maxDifficultyBonusAchieved > BASE_SCORE * 0.3) achievements.push({ id: 'giant_slayer', name: 'Dev Avcısı', value: `+${data.maxDifficultyBonusAchieved}p` });
         const accuracy = data.totalAnswerCount > 0 ? Math.round((data.correctAnswerCount / data.totalAnswerCount) * 100) : 0;
-        if (accuracy >= 90 && data.totalAnswerCount >= gameQuestions.length * 0.8) achievements.push({ id: 'sharp_mind', name: 'Keskin Zeka', value: `%${accuracy}` }); // En az %80 katılım ve %90 doğruluk
+        if (accuracy >= 90 && data.totalAnswerCount >= gameQuestions.length * 0.8) achievements.push({ id: 'sharp_mind', name: 'Keskin Zeka', value: `%${accuracy}` });
         else if (accuracy >= 70 && data.totalAnswerCount >= gameQuestions.length * 0.6) achievements.push({ id: 'good_accuracy', name: 'İyi Odaklanma', value: `%${accuracy}` });
-
         achievements.push({ id: 'participant', name: 'Katılımcı', value: '👍' });
-        // -----------------------------
 
         return {
             id: id, uid: data.uid, name: data.name, rank: rank,
             finalScore: data.score, xpEarned: data.currentTournamentXP,
             resourcesEarned: data.currentTournamentResources,
-            achievements: achievements // Başarıları ekle
+            achievements: achievements
         };
     });
 
@@ -324,7 +311,7 @@ io.on('connection', (socket) => {
   socket.on('join_tournament', (data) => {
     const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`;
     const playerGrade = data?.grade;
-    const playerUid = data?.uid;
+    const playerUid = data?.uid; // UID'yi data'dan al
 
     if (!playerUid) {
         console.error(`Katılma isteği reddedildi: Oyuncu ${playerName} (${socket.id}) için UID gelmedi.`);
@@ -391,50 +378,39 @@ io.on('connection', (socket) => {
     if (typeof data.questionIndex !== 'number' || data.questionIndex !== currentQuestionIndex) { return; }
     const player = tournamentPlayers.get(socket.id);
     if (currentQuestionAnswers.has(socket.id)) { console.log(`${player.name} (${socket.id}) bu soruya zaten cevap verdi.`); return; }
-
     const question = gameQuestions[currentQuestionIndex];
     if (!question || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined' || typeof question.branch === 'undefined') {
         console.error(`HATA: Soru ${currentQuestionIndex} için cevap kontrolü yapılamadı! Gerekli alanlar eksik.`); return;
     }
-
     const correctAnswer = question.correct_answer;
     const timeDiffMs = answerTime - questionStartTime;
-
     let pointsAwarded = 0; let correct = false; let comboBroken = false;
     let currentCombo = player.combo || 0; let adjustedBaseScore = BASE_SCORE;
     let gradeDifference = 0; let difficultyBonusPoints = 0;
 
-    player.totalAnswerCount++; // Toplam cevap sayısını artır
+    player.totalAnswerCount++;
 
     if (data.answer === correctAnswer) {
         correct = true;
-        player.correctAnswerCount++; // Doğru cevap sayısını artır
-        player.totalCorrectAnswerTimeMs += timeDiffMs; // Doğru cevap süresini ekle
-        if (timeDiffMs < player.minCorrectAnswerTimeMs) { // En hızlı cevap süresini güncelle
-             player.minCorrectAnswerTimeMs = timeDiffMs;
-             console.log(`Yeni en hızlı cevap süresi: ${player.name} - ${timeDiffMs}ms`);
-        }
+        player.correctAnswerCount++;
+        player.totalCorrectAnswerTimeMs += timeDiffMs;
+        if (timeDiffMs < player.minCorrectAnswerTimeMs) { player.minCorrectAnswerTimeMs = timeDiffMs; }
 
         const timeRatio = Math.max(0, (QUESTION_TIME_LIMIT * 1000 - timeDiffMs) / (QUESTION_TIME_LIMIT * 1000));
         const timeBonus = Math.round(timeRatio * MAX_TIME_BONUS);
         player.combo = currentCombo + 1;
-        if (player.combo > player.maxComboAchieved) { // En yüksek komboyu güncelle
-            player.maxComboAchieved = player.combo;
-        }
+        if (player.combo > player.maxComboAchieved) { player.maxComboAchieved = player.combo; }
         const comboBonus = Math.min(MAX_COMBO_BONUS, Math.max(0, player.combo - 1) * COMBO_BONUS_MULTIPLIER);
 
         const playerGradeNum = getNumericGrade(player.grade);
         const questionGradeNum = getNumericGrade(question.grade);
-
         if (playerGradeNum !== null && questionGradeNum !== null) {
             gradeDifference = questionGradeNum - playerGradeNum;
             const difficultyMultiplier = 1.0 + (gradeDifference * GRADE_DIFFICULTY_FACTOR);
             const cappedMultiplier = Math.max(MIN_DIFFICULTY_PENALTY_MULTIPLIER, Math.min(difficultyMultiplier, MAX_DIFFICULTY_BONUS_MULTIPLIER));
             adjustedBaseScore = BASE_SCORE * cappedMultiplier;
             difficultyBonusPoints = Math.max(0, Math.round(adjustedBaseScore - BASE_SCORE));
-            if (difficultyBonusPoints > player.maxDifficultyBonusAchieved) { // En yüksek zorluk bonusunu güncelle
-                 player.maxDifficultyBonusAchieved = difficultyBonusPoints;
-            }
+            if (difficultyBonusPoints > player.maxDifficultyBonusAchieved) { player.maxDifficultyBonusAchieved = difficultyBonusPoints; }
         } else { adjustedBaseScore = BASE_SCORE; }
 
         pointsAwarded = Math.round(adjustedBaseScore + timeBonus + comboBonus);
@@ -443,29 +419,23 @@ io.on('connection', (socket) => {
         const resourceType = BRANCH_RESOURCE_MAP[question.branch];
         if (resourceType && player.currentTournamentResources.hasOwnProperty(resourceType)) {
             player.currentTournamentResources[resourceType]++;
-            // --- YENİ: Bonus Kaynak ---
             if (comboBonus > 0 || difficultyBonusPoints > 0) {
-                player.currentTournamentResources[resourceType]++; // +1 bonus kaynak
+                player.currentTournamentResources[resourceType]++;
                 player.bonusResourcesEarned++;
                 console.log(`Bonus kaynak kazanıldı: +1 ${resourceType} (Toplam Bonus Kaynak: ${player.bonusResourcesEarned})`);
             }
-            // -------------------------
         }
 
         console.log(`Doğru! ${player.name} (${socket.id}) +${pointsAwarded}p. Skor: ${player.score}, Kombo: ${player.combo}`);
-
         if (gradeDifference >= SIGNIFICANT_GRADE_DIFFERENCE && difficultyBonusPoints > 0) {
              setTimeout(() => sendAnnouncerMessage(`İnanılmaz! ${player.name}, ${gradeDifference} sınıf üstü soruyu doğru cevapladı! +${difficultyBonusPoints} zorluk bonusu kazandı! 🚀`, "bonus"), 500);
         }
         if (player.combo >= 2) { setTimeout(()=> sendAnnouncerMessage(`${player.name} ${player.combo}x Kombo! 💪 +${comboBonus} bonus!`, "combo"), 300); }
-
     } else {
-        comboBroken = player.combo > 0;
-        player.combo = 0;
+        comboBroken = player.combo > 0; player.combo = 0;
         console.log(`Yanlış! ${player.name} (${socket.id}). Kombo sıfırlandı.`);
         if (comboBroken) { setTimeout(()=> sendAnnouncerMessage(`${player.name}'in ${currentCombo}x kombosu sona erdi! 💥`, "combo_break"), 300); }
     }
-
     currentQuestionAnswers.set(socket.id, { answer: data.answer, timeMs: timeDiffMs, correct: correct });
     socket.emit('answer_result', { correct, score: player.score, pointsAwarded, combo: player.combo, comboBroken, questionIndex: currentQuestionIndex, submittedAnswer: data.answer });
     broadcastTournamentState();
