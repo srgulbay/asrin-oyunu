@@ -44,12 +44,15 @@ function ProtectedRoute({ children }) {
   const isLoading = useUserStore((state) => state.isLoading);
 
   if (isLoading) {
+    console.error("🚨 [ProtectedRoute] Loading state...");
     return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
   }
 
   if (!isLoggedIn) {
+    console.error("🚨 [ProtectedRoute] Not logged in, redirecting to login.");
     return <Navigate to="/login" replace />;
   }
+  console.log("🚨 [ProtectedRoute] Logged in, rendering children.");
   return children;
 }
 
@@ -58,12 +61,15 @@ function GuestRoute({ children }) {
   const isLoading = useUserStore((state) => state.isLoading);
 
   if (isLoading) {
+     console.error("🚨 [GuestRoute] Loading state...");
      return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
   }
 
   if (isLoggedIn) {
+    console.error("🚨 [GuestRoute] Already logged in, redirecting to home.");
     return <Navigate to="/" replace />;
   }
+   console.log("🚨 [GuestRoute] Not logged in, rendering children.");
   return children;
 }
 
@@ -89,42 +95,53 @@ function App() {
 
   const questionTimerIntervalRef = useRef(null);
 
+  // --- YENİ: Her Render'da State Loglama ---
+  console.log(`🚨 [App.jsx] Render - isLoading: ${isLoading}, isConnected: ${isConnected}, user exists: ${!!user}, user UID: ${user?.uid}`);
+  // ---------------------------------------
+
   useEffect(() => { const currentHour = new Date().getHours(); const calculatedMode = (currentHour >= 18 || currentHour < 6) ? 'dark' : 'light'; setMode(calculatedMode); }, []);
   const theme = useMemo(() => createAppTheme(mode), [mode]);
 
   useEffect(() => { const handleBeforeInstallPrompt = (event) => { event.preventDefault(); setInstallPromptEvent(event); if (!window.matchMedia('(display-mode: standalone)').matches) { setShowInstallButton(true); } }; window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt); return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); }; }, []);
 
-  // Firebase Auth Listener
   useEffect(() => {
     console.log("🚨 [App.jsx] onAuthStateChanged listener kuruluyor.");
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.error("🚨 [App.jsx] onAuthStateChanged tetiklendi. Gelen firebaseUser:", firebaseUser);
-      // setUser'ı çağırmadan önce log ekle
+      console.error("🚨 [App.jsx] onAuthStateChanged tetiklendi! Gelen firebaseUser:", firebaseUser);
       console.error("🚨 [App.jsx] setUser çağrılıyor...");
-      setUser(firebaseUser); // Bu async, ama burada beklemeye gerek yok
+      setUser(firebaseUser);
     });
     return () => {
         console.log("🚨 [App.jsx] onAuthStateChanged listener kaldırılıyor.");
         unsubscribe();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setUser]); // setUser değişmez ama kural gereği ekliyoruz
+  }, [setUser]);
 
-
-  // Zustand State Listener (Debug amaçlı)
+  // --- YENİ: Zustand State Değişikliği Loglama ---
   useEffect(() => {
     console.log("🚨 [App.jsx] Zustand user state listener kuruluyor.");
     const unsubscribe = useUserStore.subscribe(
       (state) => state.user,
       (newUser, previousUser) => {
-        console.error("🚨 [App.jsx] Zustand user state değişti!", { previousUser, newUser });
+        console.error("🚨 [App.jsx] Zustand user state DEĞİŞTİ!", {
+           previousUID: previousUser?.uid,
+           newUID: newUser?.uid,
+           isLoggedInNow: !!newUser,
+           newUser: JSON.stringify(newUser, null, 2)
+         });
       }
     );
-    return unsubscribe;
-  }, []);
+    // İlk state'i de logla
+    const initialUser = useUserStore.getState().user;
+    console.error("🚨 [App.jsx] Zustand listener kuruldu. Başlangıç user state:", JSON.stringify(initialUser, null, 2));
+    return () => {
+        console.log("🚨 [App.jsx] Zustand user state listener kaldırılıyor.");
+        unsubscribe();
+    } ;
+  }, []); // Sadece mount edildiğinde çalışsın
+  // ------------------------------------------
 
-
-  // Socket Bağlantısı
   useEffect(() => {
       console.log(`🚨 [App.jsx] Socket bağlantı useEffect tetiklendi. Durum: isConnected=${isConnected}, isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
       let newSocket = null;
@@ -198,12 +215,10 @@ function App() {
       const userGrade = user?.grade;
       const userUid = user?.uid;
 
-      // --- Daha Belirgin Loglama ---
       console.error('🚨 [App.jsx] handleJoinTournament ÇAĞRILDI!');
       console.error('🚨 [App.jsx] Anlık User State:', JSON.stringify(user, null, 2));
       console.error('🚨 [App.jsx] Anlık Gönderilecek UID:', userUid);
       console.error(`🚨 [App.jsx] Kontrol: socket=${!!socket}, isConnected=${isConnected}, user=${!!user}, userUid=${!!userUid}`);
-      // ---------------------------
 
       if (socket && isConnected && user && userUid) {
           console.error('🚨 [App.jsx] Koşul sağlandı, join_tournament emit ediliyor:', { name: joinName, grade: userGrade, uid: userUid });
@@ -224,7 +239,7 @@ function App() {
           console.error('🚨 [App.jsx] Katılma başarısız: Socket nesnesi henüz yok.');
            alert('Sunucu bağlantısı kuruluyor, lütfen tekrar deneyin.');
       }
-  }, [socket, isConnected, user]); // user bağımlılığı burada önemli
+  }, [socket, isConnected, user]);
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -263,19 +278,21 @@ function App() {
    }, [socket, clearUser]);
 
   const renderGameContent = () => {
-       if (isLoading || (!isConnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) { // IDLE hariç bağlı değilse veya yükleniyorsa göster
+       if (isLoading || (!isConnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) {
             return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isLoading ? "Kullanıcı verisi yükleniyor..." : connectionMessage}</Typography></Box>;
        }
 
-       // Henüz giriş yapmamışsa veya bağlantı yoksa ve oyun IDLE ise katılma ekranı
        if (gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
-            const joinButtonDisabled = isLoading || !isConnected || !user?.uid;
-            const joinButtonText = isLoading
+            const isAuthLoading = isLoading;
+            const isUserUidMissing = !user?.uid;
+            const isSocketDisconnected = !isConnected;
+            const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserUidMissing;
+            const joinButtonText = isAuthLoading
                 ? 'Yükleniyor...'
-                : (!isConnected
+                : (isSocketDisconnected
                     ? 'Bağlanıyor...'
-                    : (!user?.uid
-                        ? 'Kullanıcı Bekleniyor...'
+                    : (isUserUidMissing
+                        ? 'Kullanıcı Bilgisi Bekleniyor...'
                         : 'Turnuvaya Katıl'));
 
             return (
