@@ -17,6 +17,7 @@ import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import { Alert } from '@mui/material'; // Alert'i de import edelim
 
 import JoinScreen from './components/JoinScreen';
 import WaitingLobby from './components/WaitingLobby';
@@ -44,15 +45,15 @@ function ProtectedRoute({ children }) {
   const isLoading = useUserStore((state) => state.isLoading);
 
   if (isLoading) {
-    console.error("🚨 [ProtectedRoute] Loading state...");
+    // console.error("🚨 [ProtectedRoute] Loading state..."); // Bu logları şimdilik kaldırabiliriz
     return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
   }
 
   if (!isLoggedIn) {
-    console.error("🚨 [ProtectedRoute] Not logged in, redirecting to login.");
+    // console.error("🚨 [ProtectedRoute] Not logged in, redirecting to login.");
     return <Navigate to="/login" replace />;
   }
-  console.log("🚨 [ProtectedRoute] Logged in, rendering children.");
+  // console.log("🚨 [ProtectedRoute] Logged in, rendering children.");
   return children;
 }
 
@@ -61,15 +62,15 @@ function GuestRoute({ children }) {
   const isLoading = useUserStore((state) => state.isLoading);
 
   if (isLoading) {
-     console.error("🚨 [GuestRoute] Loading state...");
+    //  console.error("🚨 [GuestRoute] Loading state...");
      return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
   }
 
   if (isLoggedIn) {
-    console.error("🚨 [GuestRoute] Already logged in, redirecting to home.");
+    // console.error("🚨 [GuestRoute] Already logged in, redirecting to home.");
     return <Navigate to="/" replace />;
   }
-   console.log("🚨 [GuestRoute] Not logged in, rendering children.");
+  // console.log("🚨 [GuestRoute] Not logged in, rendering children.");
   return children;
 }
 
@@ -95,28 +96,20 @@ function App() {
 
   const questionTimerIntervalRef = useRef(null);
 
-  console.log(`🚨 [App.jsx] Render - isLoading: ${isLoading}, isConnected: ${isConnected}, user exists: ${!!user}, user UID: ${user?.uid}`);
-
   useEffect(() => { const currentHour = new Date().getHours(); const calculatedMode = (currentHour >= 18 || currentHour < 6) ? 'dark' : 'light'; setMode(calculatedMode); }, []);
   const theme = useMemo(() => createAppTheme(mode), [mode]);
 
   useEffect(() => { const handleBeforeInstallPrompt = (event) => { event.preventDefault(); setInstallPromptEvent(event); if (!window.matchMedia('(display-mode: standalone)').matches) { setShowInstallButton(true); } }; window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt); return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); }; }, []);
 
   useEffect(() => {
-    console.log("🚨 [App.jsx] onAuthStateChanged listener kuruluyor.");
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.error("🚨 [App.jsx] onAuthStateChanged tetiklendi! Gelen firebaseUser:", firebaseUser ? { uid: firebaseUser.uid, email: firebaseUser.email } : null);
-      console.error("🚨 [App.jsx] setUser çağrılıyor...");
       setUser(firebaseUser);
     });
-    return () => {
-        console.log("🚨 [App.jsx] onAuthStateChanged listener kaldırılıyor.");
-        unsubscribe();
-    };
+    return () => unsubscribe();
   }, [setUser]);
 
+  // Zustand State Listener (Debug amaçlı - Bu kalsın, önemli olabilir)
   useEffect(() => {
-    console.log("🚨 [App.jsx] Zustand user state listener kuruluyor.");
     const unsubscribe = useUserStore.subscribe(
       (state) => state.user,
       (newUser, previousUser) => {
@@ -131,21 +124,17 @@ function App() {
     const initialUser = useUserStore.getState().user;
     console.error("🚨 [App.jsx] Zustand listener kuruldu. Başlangıç user state:", JSON.stringify(initialUser, null, 2));
     return () => {
-        console.log("🚨 [App.jsx] Zustand user state listener kaldırılıyor.");
         unsubscribe();
     } ;
   }, []);
 
-  // --- GÜNCELLEME: Socket Bağlantı useEffect ---
   useEffect(() => {
-    console.log(`🚨 [App.jsx] Socket bağlantı useEffect KONTROL. Durum: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
-
-    // Sadece yükleme bittiğinde VE kullanıcı giriş yapmışsa bağlanmayı dene
-    if (!isLoading && isLoggedIn) {
-        if (!socket || !isConnected) { // Zaten bağlı değilse veya socket null ise
-            console.log(`%c🚨 [App.jsx] Yükleme bitti, kullanıcı giriş yaptı. Socket bağlantısı kuruluyor: ${SERVER_URL}`, 'color: blue; font-weight: bold;');
-            const newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
-            setSocket(newSocket); // State'i hemen güncelle
+      let newSocket = null;
+      if (!isLoading && isLoggedIn) { // Sadece yükleme bitince ve giriş yapılmışsa bağlan
+        if (!socket || !isConnected) {
+            console.log(`%c🚨 [App.jsx] Socket bağlantısı kuruluyor: ${SERVER_URL}`, 'color: blue; font-weight: bold;');
+            newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
+            setSocket(newSocket);
 
             const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log("🚨 [App.jsx] Socket Bağlandı! ID:", newSocket.id);};
             const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.error("🚨 [App.jsx] Socket Bağlantı Hatası:", err);};
@@ -175,29 +164,20 @@ function App() {
             newSocket.on('waiting_update', handleWaitingUpdate);
             newSocket.on('announcer_message', handleAnnouncerMessage);
 
-            // Cleanup function sadece bu scope içinde tanımlanan newSocket için geçerli
             return () => {
               console.log("🚨 [App.jsx] Socket useEffect cleanup çalışıyor (yeni socket için).");
               newSocket.disconnect();
-              setSocket(null); // Önceki socket state'ini temizle
+              setSocket(null);
               setIsConnected(false);
             };
-        } else {
-             console.log("🚨 [App.jsx] Socket zaten bağlı veya null değil, yeniden bağlantı denenmiyor.");
         }
-
-    } else if (socket) { // Yükleme devam ediyorsa veya giriş yapılmamışsa VE socket hala varsa
-        console.log("🚨 [App.jsx] Kullanıcı çıkış yaptı veya yükleniyor, mevcut socket bağlantısı kesiliyor.");
+    } else if (socket) {
+        console.log("🚨 [App.jsx] Koşul sağlanmıyor (isLoading veya !isLoggedIn), mevcut socket bağlantısı kesiliyor.");
         socket.disconnect();
         setSocket(null);
         setIsConnected(false);
-    } else {
-         console.log(`🚨 [App.jsx] Socket bağlantısı için koşullar sağlanmadı (isLoading: ${isLoading}, isLoggedIn: ${isLoggedIn}).`);
     }
-
-  }, [isLoggedIn, isLoading]); // Sadece bu ikisine bağlı
-
-  // ------------------------------------------
+  }, [isLoggedIn, isLoading]); // Artık sadece bunlara bağlı
 
   const handleJoinTournament = useCallback(() => {
       const joinName = user?.displayName || user?.email || (user?.uid ? `Oyuncu_${user.uid.substring(0,4)}` : 'Bilinmeyen');
@@ -255,35 +235,40 @@ function App() {
   }, [installPromptEvent]);
 
    const handleLogout = useCallback(async () => {
-      if (socket) { socket.disconnect(); }
+      if (socket) {
+          console.log("🚨 [App.jsx] Logout: Socket bağlantısı kesiliyor.");
+          socket.disconnect();
+       }
       try {
           await signOut(auth);
-          clearUser();
-          console.log("Çıkış yapıldı.");
+          // clearUser() zaten onAuthStateChanged tarafından tetiklenecek
+          console.log("Çıkış yapıldı (Firebase).");
       } catch (error) {
           console.error("Çıkış hatası:", error);
           alert("Çıkış yapılırken bir hata oluştu.");
       }
-   }, [socket, clearUser]);
+   }, [socket]); // clearUser'ı buradan kaldırdık, auth listener hallediyor
 
   const renderGameContent = () => {
-       if (isLoading || (!isConnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) {
-            return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isLoading ? "Kullanıcı verisi yükleniyor..." : connectionMessage}</Typography></Box>;
+       // --- YENİ: Buton durumu için değişkenler ---
+       const isAuthLoading = isLoading;
+       const isUserUidMissing = !user?.uid;
+       const isSocketDisconnected = !isConnected;
+       const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserUidMissing;
+       const joinButtonText = isAuthLoading
+           ? 'Yükleniyor...'
+           : (isSocketDisconnected
+               ? 'Bağlanıyor...'
+               : (isUserUidMissing
+                   ? 'Kullanıcı Bilgisi Bekleniyor...'
+                   : 'Turnuvaya Katıl'));
+       // ----------------------------------------
+
+       if (isAuthLoading || (isSocketDisconnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) {
+            return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isAuthLoading ? "Kullanıcı verisi yükleniyor..." : connectionMessage}</Typography></Box>;
        }
 
        if (gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
-            const isAuthLoading = isLoading;
-            const isUserUidMissing = !user?.uid;
-            const isSocketDisconnected = !isConnected;
-            const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserUidMissing;
-            const joinButtonText = isAuthLoading
-                ? 'Yükleniyor...'
-                : (isSocketDisconnected
-                    ? 'Bağlanıyor...'
-                    : (isUserUidMissing
-                        ? 'Kullanıcı Bilgisi Bekleniyor...'
-                        : 'Turnuvaya Katıl'));
-
             return (
                 <Paper elevation={3} sx={{p:3, textAlign:'center'}}>
                    <Typography variant="h5">Turnuvaya Katılmaya Hazır Mısın?</Typography>
@@ -297,6 +282,18 @@ function App() {
                        {joinButtonText}
                     </Button>
                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{waitingMessage}</Typography>
+
+                   {/* --- YENİ: Debug Bilgisi --- */}
+                   <Box mt={2} p={1} border="1px dashed grey" borderRadius={1}>
+                       <Typography variant="caption" display="block">Debug Info:</Typography>
+                       <Typography variant="caption" display="block">isLoading: {isLoading.toString()}</Typography>
+                       <Typography variant="caption" display="block">isConnected: {isConnected.toString()}</Typography>
+                       <Typography variant="caption" display="block">isLoggedIn: {isLoggedIn.toString()}</Typography>
+                       <Typography variant="caption" display="block">user exists: {user ? 'Yes' : 'No'}</Typography>
+                       <Typography variant="caption" display="block">user UID: {user?.uid || 'Yok'}</Typography>
+                       <Typography variant="caption" display="block">Button Disabled: {joinButtonDisabled.toString()}</Typography>
+                   </Box>
+                   {/* ------------------------- */}
                 </Paper>
             );
        }
