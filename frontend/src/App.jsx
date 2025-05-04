@@ -18,7 +18,7 @@ import Toolbar from '@mui/material/Toolbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
-import JoinScreen from './components/JoinScreen'; // JoinScreen'i şimdilik kullanmıyoruz ama import kalsın
+import JoinScreen from './components/JoinScreen';
 import WaitingLobby from './components/WaitingLobby';
 import GameInterface from './components/GameInterface';
 import ResultsScreen from './components/ResultsScreen';
@@ -37,6 +37,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
+
 
 function ProtectedRoute({ children }) {
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
@@ -93,40 +94,67 @@ function App() {
 
   useEffect(() => { const handleBeforeInstallPrompt = (event) => { event.preventDefault(); setInstallPromptEvent(event); if (!window.matchMedia('(display-mode: standalone)').matches) { setShowInstallButton(true); } }; window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt); return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); }; }, []);
 
+  // Firebase Auth Listener
   useEffect(() => {
+    console.log("🚨 [App.jsx] onAuthStateChanged listener kuruluyor.");
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+      console.error("🚨 [App.jsx] onAuthStateChanged tetiklendi. Gelen firebaseUser:", firebaseUser);
+      // setUser'ı çağırmadan önce log ekle
+      console.error("🚨 [App.jsx] setUser çağrılıyor...");
+      setUser(firebaseUser); // Bu async, ama burada beklemeye gerek yok
     });
-    return () => unsubscribe();
+    return () => {
+        console.log("🚨 [App.jsx] onAuthStateChanged listener kaldırılıyor.");
+        unsubscribe();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setUser]);
+  }, [setUser]); // setUser değişmez ama kural gereği ekliyoruz
 
+
+  // Zustand State Listener (Debug amaçlı)
   useEffect(() => {
+    console.log("🚨 [App.jsx] Zustand user state listener kuruluyor.");
+    const unsubscribe = useUserStore.subscribe(
+      (state) => state.user,
+      (newUser, previousUser) => {
+        console.error("🚨 [App.jsx] Zustand user state değişti!", { previousUser, newUser });
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+
+  // Socket Bağlantısı
+  useEffect(() => {
+      console.log(`🚨 [App.jsx] Socket bağlantı useEffect tetiklendi. Durum: isConnected=${isConnected}, isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
       let newSocket = null;
       if (isConnected || !isLoggedIn || isLoading || !SERVER_URL) {
+           console.log("🚨 [App.jsx] Socket bağlantısı kurulmayacak veya mevcut bağlantı kesilecek.");
            if(socket && !isLoggedIn && !isLoading){
+                console.log("🚨 [App.jsx] Kullanıcı çıkış yaptı veya yükleniyor, socket bağlantısı kesiliyor.");
                 socket.disconnect();
                 setSocket(null);
            }
            return;
       }
 
+      console.log(`%c🚨 [App.jsx] Socket bağlantısı kuruluyor: ${SERVER_URL}`, 'color: blue; font-weight: bold;');
       newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
       setSocket(newSocket);
 
-      const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log("Socket ID:", newSocket.id);};
-      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.error("Bağlantı hatası detayı:", err);};
-      const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log("Disconnect sebebi:", reason); };
-      const handleErrorMessage = (data) => { alert(`Sunucu Hatası: ${data.message}`); };
-      const handleResetGame = (data) => { setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
-      const handleInitialState = (data) => { setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
-      const handleStateUpdate = (data) => { setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING) if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleNewQuestion = (questionData) => { setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
-      const handleQuestionTimeout = (data) => { if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === newSocket?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleAnswerResult = (data) => { if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
-      const handleGameOver = (data) => { setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleWaitingUpdate = (data) => { if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
-      const handleAnnouncerMessage = (newMessage) => { setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
+      const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log("🚨 [App.jsx] Socket Bağlandı! ID:", newSocket.id);};
+      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.error("🚨 [App.jsx] Socket Bağlantı Hatası:", err);};
+      const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log("🚨 [App.jsx] Socket Disconnect sebebi:", reason); };
+      const handleErrorMessage = (data) => { console.error("🚨 [App.jsx] Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
+      const handleResetGame = (data) => { console.log("🚨 [App.jsx] reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
+      const handleInitialState = (data) => { console.log("🚨 [App.jsx] initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
+      const handleStateUpdate = (data) => { console.log("🚨 [App.jsx] tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING) if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+      const handleNewQuestion = (questionData) => { console.log("🚨 [App.jsx] new_question alındı:", questionData); setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
+      const handleQuestionTimeout = (data) => { console.log("🚨 [App.jsx] question_timeout alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === newSocket?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+      const handleAnswerResult = (data) => { console.log("🚨 [App.jsx] answer_result alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
+      const handleGameOver = (data) => { console.log("🚨 [App.jsx] game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+      const handleWaitingUpdate = (data) => { console.log("🚨 [App.jsx] waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
+      const handleAnnouncerMessage = (newMessage) => { console.log("🚨 [App.jsx] announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
 
       newSocket.on('connect', handleConnect);
       newSocket.on('connect_error', handleConnectError);
@@ -143,6 +171,7 @@ function App() {
       newSocket.on('announcer_message', handleAnnouncerMessage);
 
       return () => {
+        console.log("🚨 [App.jsx] Socket useEffect cleanup çalışıyor.");
         newSocket.off('connect', handleConnect);
         newSocket.off('connect_error', handleConnectError);
         newSocket.off('disconnect', handleDisconnect);
@@ -169,10 +198,15 @@ function App() {
       const userGrade = user?.grade;
       const userUid = user?.uid;
 
-      console.log('Turnuvaya katılma denemesi. User nesnesi:', JSON.stringify(user, null, 2));
-      console.log('Gönderilecek UID:', userUid);
+      // --- Daha Belirgin Loglama ---
+      console.error('🚨 [App.jsx] handleJoinTournament ÇAĞRILDI!');
+      console.error('🚨 [App.jsx] Anlık User State:', JSON.stringify(user, null, 2));
+      console.error('🚨 [App.jsx] Anlık Gönderilecek UID:', userUid);
+      console.error(`🚨 [App.jsx] Kontrol: socket=${!!socket}, isConnected=${isConnected}, user=${!!user}, userUid=${!!userUid}`);
+      // ---------------------------
 
       if (socket && isConnected && user && userUid) {
+          console.error('🚨 [App.jsx] Koşul sağlandı, join_tournament emit ediliyor:', { name: joinName, grade: userGrade, uid: userUid });
           socket.emit('join_tournament', {
               name: joinName,
               grade: userGrade,
@@ -181,13 +215,16 @@ function App() {
           setWaitingMessage('Sunucuya katılım isteği gönderildi...');
           setIsPlayerReady(false);
       } else if (!user || !userUid) {
-          console.error('Katılma başarısız: User state içinde UID bulunamadı.');
+          console.error('🚨 [App.jsx] Katılma başarısız: User state içinde UID bulunamadı.');
           alert('Kullanıcı bilgileri tam olarak yüklenemedi. Lütfen sayfayı yenileyip tekrar deneyin veya tekrar giriş yapın.');
       } else if (!isConnected) {
-          console.log('Katılma başarısız: Socket bağlı değil.');
+          console.error('🚨 [App.jsx] Katılma başarısız: Socket bağlı değil.');
           alert('Sunucu bağlantısı bekleniyor...');
+      } else if (!socket) {
+          console.error('🚨 [App.jsx] Katılma başarısız: Socket nesnesi henüz yok.');
+           alert('Sunucu bağlantısı kuruluyor, lütfen tekrar deneyin.');
       }
-  }, [socket, isConnected, user]);
+  }, [socket, isConnected, user]); // user bağımlılığı burada önemli
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -226,11 +263,21 @@ function App() {
    }, [socket, clearUser]);
 
   const renderGameContent = () => {
-       if (isLoading || (!isConnected && isLoggedIn)) {
-            return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{connectionMessage}</Typography></Box>;
+       if (isLoading || (!isConnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) { // IDLE hariç bağlı değilse veya yükleniyorsa göster
+            return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isLoading ? "Kullanıcı verisi yükleniyor..." : connectionMessage}</Typography></Box>;
        }
 
+       // Henüz giriş yapmamışsa veya bağlantı yoksa ve oyun IDLE ise katılma ekranı
        if (gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
+            const joinButtonDisabled = isLoading || !isConnected || !user?.uid;
+            const joinButtonText = isLoading
+                ? 'Yükleniyor...'
+                : (!isConnected
+                    ? 'Bağlanıyor...'
+                    : (!user?.uid
+                        ? 'Kullanıcı Bekleniyor...'
+                        : 'Turnuvaya Katıl'));
+
             return (
                 <Paper elevation={3} sx={{p:3, textAlign:'center'}}>
                    <Typography variant="h5">Turnuvaya Katılmaya Hazır Mısın?</Typography>
@@ -239,12 +286,9 @@ function App() {
                        size="large"
                        onClick={handleJoinTournament}
                        sx={{mt: 2}}
-                       // --- YENİ: Buton Deaktif Etme Mantığı ---
-                       disabled={isLoading || !isConnected || !user?.uid}
-                       // ------------------------------------
+                       disabled={joinButtonDisabled}
                     >
-                       {/* Buton metni de duruma göre değişebilir */}
-                       {isLoading ? 'Yükleniyor...' : (!isConnected ? 'Bağlanıyor...' : (!user?.uid ? 'Kullanıcı Bekleniyor...' : 'Turnuvaya Katıl'))}
+                       {joinButtonText}
                     </Button>
                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{waitingMessage}</Typography>
                 </Paper>
