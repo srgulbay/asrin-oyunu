@@ -35,6 +35,8 @@ try {
 const FieldValue = admin.firestore.FieldValue;
 
 const app = express();
+app.use(express.json()); // JSON body parser
+
 const server = http.createServer(app);
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
 
@@ -106,9 +108,7 @@ function getNumericGrade(gradeString) {
 
 function getSortedPlayerList() {
     return Array.from(tournamentPlayers.entries())
-        .map(([id, data]) => ({
-             id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade, uid: data.uid
-        }))
+        .map(([id, data]) => ({ id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade, uid: data.uid }))
         .sort((a, b) => b.score - a.score);
 }
 
@@ -475,7 +475,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// --- Admin API Rotaları (Önceki adımdan) ---
 const checkAdminAuth = async (req, res, next) => {
     const idToken = req.headers.authorization?.split('Bearer ')[1];
     if (!idToken) { return res.status(401).send({ error: 'Yetkilendirme başarısız: Token bulunamadı.' }); }
@@ -518,9 +517,25 @@ adminRouter.get('/questions', checkAdminAuth, async (req, res) => {
     }
 });
 
-app.use('/api/admin', adminRouter);
-// ---------------------------------------
+adminRouter.post('/questions', checkAdminAuth, async (req, res) => {
+    const { question_text, options, correct_answer, grade, branch } = req.body;
+    if (!question_text || !options || !correct_answer || !grade || !branch) { return res.status(400).send({ error: 'Eksik alanlar var.' }); }
+    if (!Array.isArray(options) || options.length < 2) { return res.status(400).send({ error: 'Seçenekler en az 2 elemanlı dizi olmalı.' }); }
+    if (!options.includes(correct_answer)) { return res.status(400).send({ error: 'Doğru cevap seçeneklerde olmalı.' }); }
+    if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
+    try {
+        const query = `INSERT INTO questions (question_text, options, correct_answer, grade, branch) VALUES ($1, $2, $3, $4, $5) RETURNING *;`;
+        const optionsValue = options; // TEXT[] veya JSONB için uygun format gerekebilir
+        const result = await pool.query(query, [ question_text, optionsValue, correct_answer, grade, branch ]);
+        console.log("[Admin API] Yeni soru eklendi:", result.rows[0]);
+        res.status(201).send(result.rows[0]);
+    } catch (error) {
+        console.error('API Yeni Soru Ekleme Hatası:', error);
+        res.status(500).send({ error: 'Soru eklenirken sunucu hatası oluştu.' });
+    }
+});
 
+app.use('/api/admin', adminRouter);
 
 app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/plain'); res.status(200).send(`Asrin Oyunu Backend Çalışıyor! Durum: ${currentGameState}, Oyuncular: ${tournamentPlayers.size}`); });
 server.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda dinleniyor...`); if (!process.env.DATABASE_URL) console.warn("UYARI: DATABASE_URL çevre değişkeni bulunamadı."); });
