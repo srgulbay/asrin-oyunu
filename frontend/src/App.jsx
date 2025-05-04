@@ -106,9 +106,9 @@ function App() {
       socketInstance.off('announcer_message');
 
       const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log(">>> Socket Bağlandı! ID:", socketInstance.id);};
-      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);}; // console.error yerine log
+      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);};
       const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log(">>> Socket Disconnect sebebi:", reason); };
-      const handleErrorMessage = (data) => { console.log(">>> Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); }; // console.error yerine log
+      const handleErrorMessage = (data) => { console.log(">>> Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
       const handleResetGame = (data) => { console.log(">>> reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
       const handleInitialState = (data) => { console.log(">>> initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
       const handleStateUpdate = (data) => { console.log(">>> tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING && questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
@@ -119,25 +119,25 @@ function App() {
       const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
       const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
 
-      socketInstance.on('connect', handleConnect);
-      socketInstance.on('connect_error', handleConnectError);
-      socketInstance.on('disconnect', handleDisconnect);
-      socketInstance.on('error_message', handleErrorMessage);
-      socketInstance.on('reset_game', handleResetGame);
-      socketInstance.on('initial_state', handleInitialState);
-      socketInstance.on('tournament_state_update', handleStateUpdate);
-      socketInstance.on('new_question', handleNewQuestion);
-      socketInstance.on('question_timeout', handleQuestionTimeout);
-      socketInstance.on('answer_result', handleAnswerResult);
-      socketInstance.on('game_over', handleGameOver);
-      socketInstance.on('waiting_update', handleWaitingUpdate);
-      socketInstance.on('announcer_message', handleAnnouncerMessage);
+      newSocket.on('connect', handleConnect);
+      newSocket.on('connect_error', handleConnectError);
+      newSocket.on('disconnect', handleDisconnect);
+      newSocket.on('error_message', handleErrorMessage);
+      newSocket.on('reset_game', handleResetGame);
+      newSocket.on('initial_state', handleInitialState);
+      newSocket.on('tournament_state_update', handleStateUpdate);
+      newSocket.on('new_question', handleNewQuestion);
+      newSocket.on('question_timeout', handleQuestionTimeout);
+      newSocket.on('answer_result', handleAnswerResult);
+      newSocket.on('game_over', handleGameOver);
+      newSocket.on('waiting_update', handleWaitingUpdate);
+      newSocket.on('announcer_message', handleAnnouncerMessage);
 
-  }, [currentQuestion, gameState]); // Bağımlılıkları azalttık, state setter'ları dışarıdan almadığımız için gerek yok
+  }, [currentQuestion, gameState]);
 
   useEffect(() => {
     console.log(">>> Auth Listener useEffect");
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       console.log(">>> onAuthStateChanged Triggered. User:", firebaseUser ? firebaseUser.uid : null);
 
       if (socketRef.current) {
@@ -147,46 +147,18 @@ function App() {
            setIsConnected(false);
       }
 
-      if (firebaseUser) {
-         let token = null;
-         try {
-            console.log(`>>> Kullanıcı ${firebaseUser.uid} için ID Token alınıyor...`);
-            token = await firebaseUser.getIdToken();
-            console.log(`>>> ID TOKEN ALINDI (ilk 15 char): ${token ? token.substring(0, 15) : 'HATA/YOK'}`);
-         } catch (error) {
-             console.log(">>> ID Token alınırken HATA:", error); // Error yerine log
-             alert("Kimlik doğrulama token'ı alınamadı, bağlantı kurulamıyor.");
-             // Token alınamazsa, setUser'ı null ile çağırıp isLoading'i bitirelim
-             setUser(null);
-             return;
-         }
+      // --- GÜNCELLEME: Socket bağlantısını auth state'e GÖRE YAPMA ---
+      // Artık sadece giriş yapınca bağlanmayacak, state güncellemeleriyle handle edilecek.
+      // setUser çağrısı state'i güncelleyecek ve aşağıdaki socket useEffect'i tetikleyecek.
+      console.log(">>> setUser çağrılıyor (Auth verisiyle)...");
+      setUser(firebaseUser);
+      // -------------------------------------------------------------------
 
-         if (token) {
-             console.log(`%c>>> Socket bağlantısı deneniyor (Token ile): ${SERVER_URL}`, 'color: blue; font-weight: bold;');
-             const newSocket = io(SERVER_URL, {
-                 transports: ['websocket', 'polling'],
-                 auth: { token }
-             });
-             setSocket(newSocket); // Socket state'ini GÜNCELLE
-             window.socket = newSocket;
-             setupSocketListeners(newSocket);
-         } else {
-              console.log(">>> Token alınamadı, socket bağlantısı kurulmayacak.");
-              // Token yoksa, setUser'ı null ile çağırıp isLoading'i bitirelim
-               setUser(null);
-               return; // setUser(null) zaten isLoading'i false yapacak userStore'da
-         }
-         // --- setUser çağrısını socket bağlantı denemesinden SONRAYA taşıdık ---
-         console.log(">>> setUser çağrılıyor (Auth verisiyle)...");
-         setUser(firebaseUser); // isLoading=false burada ayarlanacak (userStore içinde)
-         // ------------------------------------------------------------------
-
-      } else {
-        // Kullanıcı çıkış yaptı
-        console.log(">>> Kullanıcı çıkış yaptı, setUser(null) çağrılıyor.");
-        setUser(null); // isLoading=false burada ayarlanacak (userStore içinde)
-        // setIsConnected(false); // Disconnect event'i halletmeli
-        // setConnectionMessage('Giriş bekleniyor...'); // Disconnect event'i halletmeli
+      if (!firebaseUser) {
+        // Kullanıcı çıkış yaptıysa state'i temizle (setUser(null) bunu zaten yapıyor)
+        console.log(">>> Kullanıcı çıkış yaptı, state temizlendi.");
+        setIsConnected(false);
+        setConnectionMessage('Giriş bekleniyor...');
       }
     });
 
@@ -200,15 +172,70 @@ function App() {
              setIsConnected(false);
         }
     };
- }, [setUser, setupSocketListeners]); // setUser ve setupSocketListeners (useCallback ile sarmalanmışsa)
+ }, [setUser]); // setUser dependency
 
- useEffect(() => {
+  useEffect(() => {
     socketRef.current = socket;
  }, [socket]);
 
- // Zustand State Listener (Debug amaçlı)
+ // --- GÜNCELLEME: Socket Bağlantısı - Auth state değişimine göre ---
  useEffect(() => {
-    console.log(">>> Zustand user state listener kuruluyor.");
+    console.log(`>>> Socket Bağlantı KONTROL useEffect: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
+    let newSocket = null;
+    // Sadece yükleme bittiğinde VE kullanıcı giriş yapmışsa VE henüz socket yoksa bağlan
+    if (!isLoading && isLoggedIn && !socket) {
+        console.log(`%c>>> Socket bağlantısı kuruluyor (useEffect): ${SERVER_URL}`, 'color: green; font-weight: bold;');
+        newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
+        setSocket(newSocket); // Socket state'ini ayarla
+
+        const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log(">>> Socket Bağlandı! ID:", newSocket.id);};
+        const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);};
+        const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log(">>> Socket Disconnect sebebi:", reason); };
+        const handleErrorMessage = (data) => { console.log(">>> Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
+        const handleResetGame = (data) => { console.log(">>> reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
+        const handleInitialState = (data) => { console.log(">>> initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
+        const handleStateUpdate = (data) => { console.log(">>> tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === newSocket.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING && questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+        const handleNewQuestion = (questionData) => { console.log(">>> new_question alındı:", questionData); setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
+        const handleQuestionTimeout = (data) => { console.log(">>> question_timeout alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === newSocket?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+        const handleAnswerResult = (data) => { console.log(">>> answer_result alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
+        const handleGameOver = (data) => { console.log(">>> game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+        const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
+        const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
+
+        newSocket.on('connect', handleConnect);
+        newSocket.on('connect_error', handleConnectError);
+        newSocket.on('disconnect', handleDisconnect);
+        newSocket.on('error_message', handleErrorMessage);
+        newSocket.on('reset_game', handleResetGame);
+        newSocket.on('initial_state', handleInitialState);
+        newSocket.on('tournament_state_update', handleStateUpdate);
+        newSocket.on('new_question', handleNewQuestion);
+        newSocket.on('question_timeout', handleQuestionTimeout);
+        newSocket.on('answer_result', handleAnswerResult);
+        newSocket.on('game_over', handleGameOver);
+        newSocket.on('waiting_update', handleWaitingUpdate);
+        newSocket.on('announcer_message', handleAnnouncerMessage);
+
+        return () => {
+            console.log(">>> Socket Bağlantı useEffect cleanup.");
+            if (newSocket) {
+                newSocket.disconnect();
+            }
+             setSocket(null); // component unmount olduğunda temizle
+             setIsConnected(false);
+        };
+    } else if (!isLoggedIn && socket) {
+        // Kullanıcı çıkış yaptıysa ve socket hala varsa, bağlantıyı kes
+        console.log(">>> Kullanıcı çıkış yapmış, mevcut socket bağlantısı kesiliyor (useEffect).");
+        socket.disconnect();
+        setSocket(null);
+        setIsConnected(false);
+    }
+  }, [isLoggedIn, isLoading, socket, isConnected]); // isConnected ve socket eklendi
+  //------------------------------------------------------------
+
+ // Zustand State Listener (Bu kalsın)
+ useEffect(() => {
     const unsubscribe = useUserStore.subscribe(
       (state) => state.user,
       (newUser, previousUser) => {
@@ -220,34 +247,40 @@ function App() {
     return unsubscribe;
   }, []);
 
-  const handleJoinTournament = useCallback(() => {
-      const joinName = user?.displayName || user?.email || (user?.uid ? `Oyuncu_${user.uid.substring(0,4)}` : 'Bilinmeyen');
-      const userGrade = user?.grade;
-      // const userUid = user?.uid; // Gönderilmiyor
+  // --- GÜNCELLEME: handleJoinTournament (UID'yi doğrudan Auth'dan al) ---
+  const handleJoinTournament = useCallback(async () => {
+    console.log('>>> handleJoinTournament ÇAĞRILDI!');
 
-      console.log('>>> handleJoinTournament ÇAĞRILDI!');
-      console.log('>>> Anlık User State:', JSON.stringify(user, null, 2));
-      // console.log('>>> Anlık Gönderilecek UID:', userUid); // Kaldırıldı
-      console.log(`>>> Kontrol: socket=${!!socket}, isConnected=${isConnected}, user=${!!user}`); // user?.uid kontrolü kalktı
+    const currentUser = auth.currentUser; // O anki kullanıcıyı al
+    if (!currentUser) {
+        console.log('>>> Katılma başarısız: Firebase Auth kullanıcısı bulunamadı!');
+        alert('Giriş yapılmamış veya kullanıcı bilgisi alınamadı. Lütfen tekrar giriş yapın.');
+        return;
+    }
 
-      if (socket && isConnected && user) { // UID kontrolü kalktı
-          console.log('>>> Koşul sağlandı, join_tournament emit ediliyor:', { name: joinName, grade: userGrade });
-          socket.emit('join_tournament', {
-              name: joinName,
-              grade: userGrade
-              // uid GÖNDERİLMEDİ
-          });
-          setWaitingMessage('Sunucuya katılım isteği gönderildi...');
-          setIsPlayerReady(false);
-      } else if (!user) {
-          console.log('>>> Katılma başarısız: User state bulunamadı.');
-          const reason = !user ? "User nesnesi null/undefined" : "Bilinmeyen durum";
-          alert(`Katılma Başarısız!\nSebep: ${reason}\nLütfen sayfayı yenileyip tekrar deneyin.`);
-      } else if (!isConnected || !socket) {
-          console.log(`>>> Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
-          alert('Sunucu bağlantısı bekleniyor veya kurulamadı...');
-      }
-  }, [socket, isConnected, user]);
+    const userUid = currentUser.uid; // UID'yi buradan al
+    const joinName = currentUser.displayName || currentUser.email || `Oyuncu_${userUid.substring(0,4)}`;
+    const userGrade = user?.grade; // Grade hala Zustand'dan geliyor (null olabilir)
+
+    console.log('>>> Anlık Auth User UID:', userUid);
+    console.log('>>> Anlık Zustand User (grade için):', JSON.stringify(user, null, 2));
+    console.log(`>>> Kontrol: socket=${!!socket}, isConnected=${isConnected}`);
+
+    if (socket && isConnected) {
+        console.log('>>> Koşul sağlandı, join_tournament emit ediliyor (Doğrudan Auth UID ile):', { name: joinName, grade: userGrade, uid: userUid });
+        socket.emit('join_tournament', {
+            name: joinName,
+            grade: userGrade,
+            uid: userUid // <-- UID'yi doğrudan Auth'dan gönder
+        });
+        setWaitingMessage('Sunucuya katılım isteği gönderildi...');
+        setIsPlayerReady(false);
+    } else if (!isConnected || !socket) {
+        console.log(`>>> Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
+        alert('Sunucu bağlantısı bekleniyor veya kurulamadı...');
+    }
+}, [socket, isConnected, user]); // user dependency (grade için)
+// ------------------------------------------------------------
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -287,19 +320,20 @@ function App() {
           console.error("Çıkış hatası:", error);
           alert("Çıkış yapılırken bir hata oluştu.");
       }
-   }, []); // socketRef dependency değil
+   }, []);
 
   const renderGameContent = () => {
        const isAuthLoading = isLoading;
-       const isUserMissing = !user; // UID yerine user kontrolü
+       //const isUserUidMissing = !user?.uid; // Artık handleJoinTournament içinde kontrol ediliyor
+       const isUserMissing = !user; // Sadece user var mı kontrolü daha iyi olabilir
        const isSocketDisconnected = !isConnected;
-       const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserMissing;
+       const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserMissing; // UID kontrolü yerine user kontrolü
        const joinButtonText = isAuthLoading
            ? 'Yükleniyor...'
            : (isSocketDisconnected
                ? 'Bağlanıyor...'
                : (isUserMissing
-                   ? 'Kullanıcı Bilgisi Bekleniyor...'
+                   ? 'Kullanıcı Bekleniyor...'
                    : 'Turnuvaya Katıl'));
 
        if (isAuthLoading || (isSocketDisconnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) {
@@ -335,7 +369,7 @@ function App() {
                        <Typography variant="caption" display="block">isConnected: {isConnected.toString()}</Typography>
                        <Typography variant="caption" display="block">isLoggedIn: {isLoggedIn.toString()}</Typography>
                        <Typography variant="caption" display="block">user exists: {user ? 'Yes' : 'No'}</Typography>
-                       <Typography variant="caption" display="block">user UID: {user?.uid || 'Yok'}</Typography>
+                       <Typography variant="caption" display="block">user UID (from state): {user?.uid || 'Yok'}</Typography>
                        <Typography variant="caption" display="block">Button Disabled: {joinButtonDisabled.toString()}</Typography>
                    </Box>
                 </Paper>
