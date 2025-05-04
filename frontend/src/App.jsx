@@ -170,12 +170,9 @@ function App() {
       const userGrade = user?.grade;
       const userUid = user?.uid;
 
-      // --- DEBUG LOG Eklendi ---
       console.log('Turnuvaya katılma denemesi. User nesnesi:', JSON.stringify(user, null, 2));
       console.log('Gönderilecek UID:', userUid);
-      // -------------------------
 
-      // UID kontrolü güncellendi
       if (socket && isConnected && user && userUid) {
           socket.emit('join_tournament', {
               name: joinName,
