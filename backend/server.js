@@ -304,6 +304,7 @@ async function endTournament() {
     }, 15000);
 }
 
+
 io.on('connection', (socket) => {
   console.log(`Bağlandı: ${socket.id}, Durum: ${currentGameState}`);
   socket.emit('initial_state', { gameState: currentGameState, players: getSortedPlayerList() });
@@ -311,7 +312,7 @@ io.on('connection', (socket) => {
   socket.on('join_tournament', (data) => {
     const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`;
     const playerGrade = data?.grade;
-    const playerUid = data?.uid; // UID'yi data'dan al
+    const playerUid = data?.uid;
 
     if (!playerUid) {
         console.error(`Katılma isteği reddedildi: Oyuncu ${playerName} (${socket.id}) için UID gelmedi.`);
@@ -473,6 +474,53 @@ io.on('connection', (socket) => {
       }
     });
 });
+
+// --- Admin API Rotaları (Önceki adımdan) ---
+const checkAdminAuth = async (req, res, next) => {
+    const idToken = req.headers.authorization?.split('Bearer ')[1];
+    if (!idToken) { return res.status(401).send({ error: 'Yetkilendirme başarısız: Token bulunamadı.' }); }
+    if (!authAdmin) { console.error("[Admin Auth] Firebase Admin SDK başlatılmamış."); return res.status(500).send({ error: 'Sunucu yapılandırma hatası.' }); }
+    try {
+        const decodedToken = await authAdmin.verifyIdToken(idToken);
+        const userDoc = await dbAdmin.collection('users').doc(decodedToken.uid).get();
+        if (!userDoc.exists) { console.warn(`[Admin Auth] Firestore'da kullanıcı bulunamadı: ${decodedToken.uid}`); return res.status(403).send({ error: 'Yetkilendirme başarısız: Kullanıcı bulunamadı.' }); }
+        const userData = userDoc.data();
+        const isAdmin = userData.roles?.includes('admin');
+        if (!isAdmin) { console.warn(`[Admin Auth] Yetkisiz erişim denemesi (admin değil): ${decodedToken.email || decodedToken.uid}`); return res.status(403).send({ error: 'Yetkilendirme başarısız: Admin yetkisi gerekli.' }); }
+        req.user = decodedToken;
+        req.userData = userData;
+        next();
+    } catch (error) {
+        console.error('[Admin Auth] Token doğrulama hatası:', error.message);
+        return res.status(401).send({ error: 'Yetkilendirme başarısız: Geçersiz token.' });
+    }
+};
+
+const adminRouter = express.Router();
+
+adminRouter.get('/questions', checkAdminAuth, async (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
+    try {
+        const totalResult = await pool.query('SELECT COUNT(*) FROM questions');
+        const totalItems = parseInt(totalResult.rows[0].count, 10);
+        const query = 'SELECT * FROM questions ORDER BY id DESC LIMIT $1 OFFSET $2';
+        const result = await pool.query(query, [limit, offset]);
+        res.status(200).send({
+            questions: result.rows,
+            pagination: { currentPage: page, limit: limit, totalItems: totalItems, totalPages: Math.ceil(totalItems / limit) }
+        });
+    } catch (error) {
+        console.error('API Soru Listeleme Hatası:', error);
+        res.status(500).send({ error: 'Sorular listelenirken bir hata oluştu.' });
+    }
+});
+
+app.use('/api/admin', adminRouter);
+// ---------------------------------------
+
 
 app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/plain'); res.status(200).send(`Asrin Oyunu Backend Çalışıyor! Durum: ${currentGameState}, Oyuncular: ${tournamentPlayers.size}`); });
 server.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda dinleniyor...`); if (!process.env.DATABASE_URL) console.warn("UYARI: DATABASE_URL çevre değişkeni bulunamadı."); });
