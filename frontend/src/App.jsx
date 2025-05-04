@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Routes, Route, Navigate, Link as RouterLink, Outlet } from "react-router-dom"; // Outlet eklendi
+import { Routes, Route, Navigate, Link as RouterLink, Outlet } from "react-router-dom";
 import './App.css';
 import { io } from "socket.io-client";
 
@@ -17,27 +17,24 @@ import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'; // Admin ikonu
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { Alert } from '@mui/material';
 
+// Component Imports...
 import JoinScreen from './components/JoinScreen';
 import WaitingLobby from './components/WaitingLobby';
 import GameInterface from './components/GameInterface';
 import ResultsScreen from './components/ResultsScreen';
 import PlayerList from './components/PlayerList';
 import AnnouncerLog from './components/AnnouncerLog';
-import AdminLayout from './components/admin/AdminLayout'; // Admin Layout import
+import AdminLayout from './components/admin/AdminLayout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
-import AdminDashboardPage from './pages/admin/AdminDashboardPage'; // Admin Dashboard import
-// Diğer admin sayfalarını da import edeceğiz (şimdilik placeholder)
-// import AdminUserListPage from './pages/admin/AdminUserListPage';
-// import AdminQuestionListPage from './pages/admin/AdminQuestionListPage';
-// import AdminSettingsPage from './pages/admin/AdminSettingsPage';
-
+import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import createAppTheme from './theme';
 
+// Firebase & State Imports...
 import { auth } from './firebaseConfig';
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import useUserStore from './store/userStore';
@@ -47,63 +44,32 @@ const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
 
-// --- Route Koruma Componentleri ---
-function ProtectedRoute({ children }) {
-  const isLoggedIn = useUserStore((state) => state.isLoggedIn);
-  const isLoading = useUserStore((state) => state.isLoading);
-  if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
-  if (!isLoggedIn) { return <Navigate to="/login" replace />; }
-  return children;
+// Route Components...
+function ProtectedRoute({ children }) { /* ... Kodu aynı ... */
+    const isLoggedIn = useUserStore((state) => state.isLoggedIn);
+    const isLoading = useUserStore((state) => state.isLoading);
+    if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
+    if (!isLoggedIn) { return <Navigate to="/login" replace />; }
+    return children;
+ }
+function GuestRoute({ children }) { /* ... Kodu aynı ... */
+    const isLoggedIn = useUserStore((state) => state.isLoggedIn);
+    const isLoading = useUserStore((state) => state.isLoading);
+    if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
+    if (isLoggedIn) { return <Navigate to="/" replace />; }
+    return children;
 }
-
-function GuestRoute({ children }) {
-  const isLoggedIn = useUserStore((state) => state.isLoggedIn);
-  const isLoading = useUserStore((state) => state.isLoading);
-  if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
-  if (isLoggedIn) { return <Navigate to="/" replace />; }
-  return children;
-}
-
-// --- YENİ: Admin Route Koruması (Temsili) ---
-function AdminRoute({ children }) {
+function AdminRoute({ children }) { /* ... Temsili kontrol ile kodu aynı ... */
     const user = useUserStore((state) => state.user);
     const isLoggedIn = useUserStore((state) => state.isLoggedIn);
     const isLoading = useUserStore((state) => state.isLoading);
-
-    // GERÇEK UYGULAMADA BURADA GÜVENLİ ROL KONTROLÜ YAPILMALIDIR!
-    // Örneğin: const isAdmin = user?.roles?.includes('admin');
-    const isAdmin = user?.email === 'admin@example.com'; // ŞİMDİLİK GEÇİCİ KONTROL - MUTLAKA DEĞİŞTİR!
-
-    useEffect(() => {
-        if (!isLoading && isLoggedIn && !isAdmin) {
-             console.warn(">>> YETKİSİZ ERİŞİM DENEMESİ: Admin olmayan kullanıcı /admin yoluna erişmeye çalıştı.", user?.email);
-        }
-         if(!isLoading && !isLoggedIn) {
-            console.log("AdminRoute: Kullanıcı giriş yapmamış.");
-        }
-        if(!isLoading && isLoggedIn && isAdmin) {
-            console.log("AdminRoute: Admin kullanıcısı doğrulandı.");
-        }
-    }, [isLoading, isLoggedIn, isAdmin, user]);
-
-
-    if (isLoading) {
-       return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
-    }
-
-    if (!isLoggedIn) {
-       return <Navigate to="/login" state={{ from: '/admin' }} replace />; // Login'e yönlendir, sonra buraya dönsün
-    }
-
-    if (!isAdmin) {
-        // Admin değilse ana sayfaya veya yetkisiz sayfasına yönlendir
-        return <Navigate to="/" replace />;
-    }
-
-    return children; // Admin ise içeriği göster
+    const isAdmin = user?.email === 'srgulbay@gmail.com'; // GERÇEK ROL KONTROLÜ LAZIM!
+    useEffect(() => { if (!isLoading && isLoggedIn && !isAdmin) { console.warn(">>> YETKİSİZ ERİŞİM DENEMESİ: Admin olmayan kullanıcı /admin yoluna erişmeye çalıştı.", user?.email); } }, [isLoading, isLoggedIn, isAdmin, user]);
+    if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
+    if (!isLoggedIn) { return <Navigate to="/login" state={{ from: '/admin' }} replace />; }
+    if (!isAdmin) { return <Navigate to="/" replace />; }
+    return children;
 }
-// -------------------------------------------
-
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -125,107 +91,144 @@ function App() {
   const { user, isLoggedIn, isLoading, setUser, clearUser } = useUserStore();
 
   const questionTimerIntervalRef = useRef(null);
-  const socketRef = useRef(socket);
+  const socketRef = useRef(socket); // Socket'i ref'te tutalım
 
+  // Her render logu (debug için)
   console.log(`>>> APP RENDER: isLoading=${isLoading}, isConnected=${isConnected}, isLoggedIn=${isLoggedIn}, userUID=${user?.uid}`);
 
+  // Tema ve PWA effect'leri
   useEffect(() => { const currentHour = new Date().getHours(); const calculatedMode = (currentHour >= 18 || currentHour < 6) ? 'dark' : 'light'; setMode(calculatedMode); }, []);
   const theme = useMemo(() => createAppTheme(mode), [mode]);
-
   useEffect(() => { const handleBeforeInstallPrompt = (event) => { event.preventDefault(); setInstallPromptEvent(event); if (!window.matchMedia('(display-mode: standalone)').matches) { setShowInstallButton(true); } }; window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt); return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); }; }, []);
 
+  // Auth Durumunu Dinle
   useEffect(() => {
+    console.log(">>> Auth Listener useEffect Kuruluyor");
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      console.log(">>> onAuthStateChanged Tetiklendi. User:", firebaseUser ? firebaseUser.uid : null);
+      // setUser state güncellemesini tetikler, aşağıdaki useEffect'ler buna göre çalışır
       setUser(firebaseUser);
     });
-    return () => unsubscribe();
-  }, [setUser]);
+    return () => {
+      console.log(">>> Auth Listener useEffect Temizleniyor.");
+      unsubscribe();
+    };
+  }, [setUser]); // setUser değişmez ama kuraldır
 
-  // Zustand State Listener
-  useEffect(() => {
-    const unsubscribe = useUserStore.subscribe(
-      (state) => state.user,
-      (newUser, previousUser) => { console.log(">>> Zustand user state DEĞİŞTİ!", { newUID: newUser?.uid }); }
-    );
-    return unsubscribe;
-  }, []);
-
+  // Socket Listener'ları Ayarlama Fonksiyonu
   const setupSocketListeners = useCallback((socketInstance) => {
-      socketInstance.off('connect'); socketInstance.off('connect_error'); socketInstance.off('disconnect');
-      socketInstance.off('error_message'); socketInstance.off('reset_game'); socketInstance.off('initial_state');
-      socketInstance.off('tournament_state_update'); socketInstance.off('new_question'); socketInstance.off('question_timeout');
-      socketInstance.off('answer_result'); socketInstance.off('game_over'); socketInstance.off('waiting_update');
-      socketInstance.off('announcer_message');
+    // Eski listener'ları temizle
+    socketInstance.off('connect'); socketInstance.off('connect_error'); socketInstance.off('disconnect');
+    socketInstance.off('error_message'); socketInstance.off('reset_game'); socketInstance.off('initial_state');
+    socketInstance.off('tournament_state_update'); socketInstance.off('new_question'); socketInstance.off('question_timeout');
+    socketInstance.off('answer_result'); socketInstance.off('game_over'); socketInstance.off('waiting_update');
+    socketInstance.off('announcer_message');
 
-      const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log(">>> Socket Bağlandı! ID:", socketInstance.id);};
-      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);};
-      const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log(">>> Socket Disconnect sebebi:", reason); };
-      const handleErrorMessage = (data) => { console.log(">>> Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
-      const handleResetGame = (data) => { console.log(">>> reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
-      const handleInitialState = (data) => { console.log(">>> initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
-      const handleStateUpdate = (data) => { console.log(">>> tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING && questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleNewQuestion = (questionData) => { console.log(">>> new_question alındı:", questionData); setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
-      const handleQuestionTimeout = (data) => { console.log(">>> question_timeout alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === socketInstance?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleAnswerResult = (data) => { console.log(">>> answer_result alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
-      const handleGameOver = (data) => { console.log(">>> game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
-      const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
+    // Yeni listener handler'ları
+    const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log(">>> Socket Bağlandı! ID:", socketInstance.id);};
+    const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);}; // Log olarak değiştirildi
+    const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log(">>> Socket Disconnect sebebi:", reason); };
+    const handleErrorMessage = (data) => { console.log(">>> Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
+    const handleResetGame = (data) => { console.log(">>> reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
+    const handleInitialState = (data) => { console.log(">>> initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
+    const handleStateUpdate = (data) => { console.log(">>> tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING && questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+    const handleNewQuestion = (questionData) => { console.log(">>> new_question alındı:", questionData); setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
+    const handleQuestionTimeout = (data) => { console.log(">>> question_timeout alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === socketInstance?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+    const handleAnswerResult = (data) => { console.log(">>> answer_result alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
+    const handleGameOver = (data) => { console.log(">>> game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+    const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
+    const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
 
-      newSocket.on('connect', handleConnect);
-      newSocket.on('connect_error', handleConnectError);
-      newSocket.on('disconnect', handleDisconnect);
-      newSocket.on('error_message', handleErrorMessage);
-      newSocket.on('reset_game', handleResetGame);
-      newSocket.on('initial_state', handleInitialState);
-      newSocket.on('tournament_state_update', handleStateUpdate);
-      newSocket.on('new_question', handleNewQuestion);
-      newSocket.on('question_timeout', handleQuestionTimeout);
-      newSocket.on('answer_result', handleAnswerResult);
-      newSocket.on('game_over', handleGameOver);
-      newSocket.on('waiting_update', handleWaitingUpdate);
-      newSocket.on('announcer_message', handleAnnouncerMessage);
+    // Listener'ları ata
+    socketInstance.on('connect', handleConnect);
+    socketInstance.on('connect_error', handleConnectError);
+    socketInstance.on('disconnect', handleDisconnect);
+    socketInstance.on('error_message', handleErrorMessage);
+    socketInstance.on('reset_game', handleResetGame);
+    socketInstance.on('initial_state', handleInitialState);
+    socketInstance.on('tournament_state_update', handleStateUpdate);
+    socketInstance.on('new_question', handleNewQuestion);
+    socketInstance.on('question_timeout', handleQuestionTimeout);
+    socketInstance.on('answer_result', handleAnswerResult);
+    socketInstance.on('game_over', handleGameOver);
+    socketInstance.on('waiting_update', handleWaitingUpdate);
+    socketInstance.on('announcer_message', handleAnnouncerMessage);
 
-  }, [currentQuestion, gameState]);
+  }, [currentQuestion, gameState]); // Bu bağımlılıklar önemli
 
-   // Socket Bağlantısını Yöneten Ayrı useEffect
+  // Socket Bağlantısını Yönet (Giriş/Çıkış/Yükleme durumuna göre)
   useEffect(() => {
+    let didCancel = false; // Cleanup'ta async işlem iptali için flag
     console.log(`>>> Socket Bağlantı KONTROL useEffect: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
-    let newSocket = null;
 
-    if (!isLoading && isLoggedIn) {
-        const currentUser = auth.currentUser;
-        if (currentUser && (!socketRef.current || !socketRef.current.connected)) {
-             console.log(`%c>>> Socket bağlantısı kuruluyor (useEffect - No Token): ${SERVER_URL}`, 'color: green; font-weight: bold;');
-             newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
-             setSocket(newSocket);
-             window.socket = newSocket;
-             setupSocketListeners(newSocket);
-        } else if (currentUser && socketRef.current?.connected) {
-             console.log(">>> Socket zaten bağlı.");
-        } else if (!currentUser) {
-             console.log(">>> Kullanıcı bilgisi (currentUser) henüz gelmemiş olabilir.");
-        }
+    const connectSocket = async () => {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.log(">>> Socket bağlantısı için kullanıcı yok.");
+        return;
+      }
+
+      let token = null;
+      try {
+        console.log(`>>> Kullanıcı ${currentUser.uid} için ID Token alınıyor (Socket için)...`);
+        token = await currentUser.getIdToken();
+        console.log(`>>> ID TOKEN ALINDI (Socket için - ilk 15 char): ${token ? token.substring(0, 15) : 'HATA/YOK'}`);
+        if (didCancel) return; // Eğer arada component unmount olduysa devam etme
+      } catch (error) {
+        console.log(">>> ID Token alınırken HATA:", error);
+        if (didCancel) return;
+        alert("Kimlik doğrulama token'ı alınamadı.");
+        handleLogout(); // Token alınamazsa çıkış yap
+        return;
+      }
+
+      if (token && !didCancel) {
+        console.log(`%c>>> Socket bağlantısı deneniyor (Token ile): ${SERVER_URL}`, 'color: green; font-weight: bold;');
+        const newSocket = io(SERVER_URL, {
+          transports: ['websocket', 'polling'],
+          auth: { token } // Token'ı gönder
+        });
+        setSocket(newSocket); // State'i güncelle
+        setupSocketListeners(newSocket); // Listener'ları bağla
+      } else if (!didCancel) {
+        console.log(">>> Token alınamadı, socket bağlantısı kurulmayacak.");
+      }
+    };
+
+    // Eğer yükleme bittiyse, kullanıcı giriş yapmışsa ve socket bağlı DEĞİLSE bağlanmayı dene
+    if (!isLoading && isLoggedIn && (!socketRef.current || !socketRef.current.connected)) {
+      connectSocket();
     } else if (!isLoggedIn && socketRef.current) {
-        console.log(">>> Kullanıcı çıkış yapmış, mevcut socket bağlantısı kesiliyor.");
-        socketRef.current.disconnect();
-        setSocket(null);
-        setIsConnected(false);
+      // Kullanıcı giriş yapmamışsa veya çıkış yaptıysa ve socket varsa, bağlantıyı kes
+      console.log(">>> Kullanıcı giriş yapmamış veya çıkmış, mevcut socket bağlantısı kesiliyor.");
+      socketRef.current.disconnect();
+      setSocket(null);
+      setIsConnected(false);
     }
 
+    // Cleanup fonksiyonu
     return () => {
-        console.log(`>>> Socket Bağlantı useEffect TEMİZLENİYOR (isLoggedIn=${isLoggedIn}, isLoading=${isLoading})`);
-        // Component unmount olduğunda socket'i kapatmak iyi bir pratik
-        // Eğer newSocket bu scope'ta oluşturulduysa onu kapatabiliriz ama state güncellemeleri nedeniyle
-        // ref kullanmak daha güvenli.
-        // Ancak çıkış yapıldığında zaten kapatılıyor.
+      didCancel = true; // Async işlem devam ediyorsa işaretle
+      console.log(`>>> Socket Bağlantı useEffect TEMİZLENİYOR (isLoggedIn=${isLoggedIn}, isLoading=${isLoading})`);
+      // Bu effect unmount olduğunda veya dependency değiştiğinde socket'i kapat
+      // (Logout olduğunda veya component tamamen kaldırıldığında)
+      if (socketRef.current) {
+           console.log(">>> useEffect Cleanup: Socket bağlantısı kesiliyor.");
+           socketRef.current.disconnect();
+           setSocket(null);
+           setIsConnected(false);
+      }
     };
-  }, [isLoggedIn, isLoading, setupSocketListeners]);
+  }, [isLoggedIn, isLoading, setupSocketListeners, handleLogout]); // handleLogout'u bağımlılığa ekledik
 
+  // Socket state'ini ref'e ata
   useEffect(() => {
     socketRef.current = socket;
- }, [socket]);
+  }, [socket]);
 
- const handleJoinTournament = useCallback(async () => {
+
+  // Kullanıcı Eylemleri
+  const handleJoinTournament = useCallback(async () => {
     console.log('>>> handleJoinTournament ÇAĞRILDI!');
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -236,19 +239,26 @@ function App() {
     const userUid = currentUser.uid;
     const joinName = currentUser.displayName || currentUser.email || `Oyuncu_${userUid.substring(0,4)}`;
     const userGrade = user?.grade;
+
     console.log('>>> Anlık Auth User UID:', userUid);
     console.log('>>> Anlık Zustand User (grade için):', JSON.stringify(user, null, 2));
     console.log(`>>> Kontrol: socket=${!!socket}, isConnected=${isConnected}`);
+
     if (socket && isConnected) {
         console.log('>>> Koşul sağlandı, join_tournament emit ediliyor (Doğrudan Auth UID ile):', { name: joinName, grade: userGrade, uid: userUid });
-        socket.emit('join_tournament', { name: joinName, grade: userGrade, uid: userUid });
+        // BACKEND'in UID BEKLEDİĞİNİ VARSAYIYORUZ (TOKEN MIDDLEWARE YOK)
+        socket.emit('join_tournament', {
+            name: joinName,
+            grade: userGrade,
+            uid: userUid // <-- UID'yi gönder
+        });
         setWaitingMessage('Sunucuya katılım isteği gönderildi...');
         setIsPlayerReady(false);
     } else if (!isConnected || !socket) {
         console.log(`>>> Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
         alert('Sunucu bağlantısı bekleniyor veya kurulamadı...');
     }
-  }, [socket, isConnected, user]);
+}, [socket, isConnected, user]);
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -288,8 +298,9 @@ function App() {
           console.error("Çıkış hatası:", error);
           alert("Çıkış yapılırken bir hata oluştu.");
       }
-   }, []);
+   }, []); // Bağımlılık yok
 
+  // Render Fonksiyonu
   const renderGameContent = () => {
        const isAuthLoading = isLoading;
        const isUserUidMissing = !user?.uid; // State'teki UID'yi kontrol et
@@ -336,9 +347,7 @@ function App() {
   };
 
   const showSidebars = (gameState === GAME_STATES.WAITING_TOURNAMENT || gameState === GAME_STATES.TOURNAMENT_RUNNING || gameState === GAME_STATES.GAME_OVER) && players.length > 0 && isConnected;
-
-  // Admin rol kontrolü (TEMSİLİ - Burayı gerçek rolle değiştir!)
-  const isAdminUser = user?.email === 'admin@example.com'; // Kendi admin email'ini veya UID'ni kullan
+  const isAdminUser = user?.email === 'srgulbay@gmail.com'; // TEMSİLİ - GERÇEK KONTROL GEREKLİ!
 
   return (
     <ThemeProvider theme={theme}>
@@ -350,11 +359,7 @@ function App() {
              {isLoading ? ( <CircularProgress size={24} color="inherit"/> ) :
               isLoggedIn ? (
                <Box sx={{ display: 'flex', alignItems: 'center'}}>
-                 {/* YENİ: Admin Paneli Butonu */}
-                 {isAdminUser && (
-                     <Button color="inherit" component={RouterLink} to="/admin" startIcon={<AdminPanelSettingsIcon/>} sx={{ mr: 1 }}> Admin </Button>
-                 )}
-                 {/* -------------- */}
+                 {isAdminUser && ( <Button color="inherit" component={RouterLink} to="/admin" startIcon={<AdminPanelSettingsIcon/>} sx={{ mr: 1 }}> Admin </Button> )}
                  <Button color="inherit" component={RouterLink} to="/profile" startIcon={<AccountCircleIcon/>}> {user?.displayName || user?.email} </Button>
                  <Button color="inherit" onClick={handleLogout} startIcon={<LogoutIcon/>} sx={{ ml: 1 }}>Çıkış Yap</Button>
                </Box>
@@ -370,57 +375,49 @@ function App() {
 
        <Container maxWidth="xl" sx={{ marginTop: 2, paddingBottom: 4 }}>
            {showInstallButton && installPromptEvent && ( <Button fullWidth variant="outlined" onClick={handleInstallClick} startIcon={<InstallMobileIcon />} size="small" sx={{ mb: 2 }}> Uygulamayı Yükle </Button> )}
-           <Grid container spacing={2} alignItems="flex-start">
-              {/* Sidebarsız Route'lar (Login, Register, Admin) */}
-              <Routes>
-                  <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
-                  <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
-                  <Route path="/profile" element={ <ProtectedRoute> <ProfilePage /> </ProtectedRoute> }/>
+           <Routes>
+                {/* Sidebar GEREKTİRMEYEN Rotalar */}
+                <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
+                <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+                <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+                <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
+                     <Route index element={<AdminDashboardPage />} />
+                     {/* Diğer admin route'ları buraya gelecek */}
+                </Route>
 
-                  {/* YENİ: Admin Rotaları */}
-                  <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
-                      <Route index element={<AdminDashboardPage />} />
-                      {/* <Route path="users" element={<AdminUserListPage />} /> */}
-                      {/* <Route path="questions" element={<AdminQuestionListPage />} /> */}
-                      {/* <Route path="settings" element={<AdminSettingsPage />} /> */}
-                      {/* Diğer admin sayfaları buraya eklenecek */}
-                  </Route>
-                  {/* -------------- */}
-
-                  {/* Ana Oyun Alanı (Sidebar'lı) */}
-                  <Route path="/" element={
-                      <Grid container spacing={2} alignItems="flex-start">
+                 {/* Ana Oyun Alanı (Sidebar'lı) */}
+                 <Route path="/" element={
+                     <Grid container spacing={2} alignItems="flex-start">
+                         {showSidebars && (
+                             <Grid item xs={12} md={3} order={{ xs: 2, md: 1 }}>
+                               <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+                                   <Paper variant="outlined" sx={{ p: 1, height: '100%' }}>
+                                       <PlayerList players={players} gameState={gameState} currentSocketId={socket?.id} />
+                                   </Paper>
+                               </Box>
+                             </Grid>
+                         )}
+                         <Grid item xs={12} md={ showSidebars ? 6 : 12 } order={{ xs: 1, md: 2 }} >
+                             <ProtectedRoute>
+                                 <AnimatePresence mode="wait">
+                                     <motion.div key={gameState} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} >
+                                         {renderGameContent()}
+                                     </motion.div>
+                                 </AnimatePresence>
+                             </ProtectedRoute>
+                         </Grid>
                           {showSidebars && (
-                              <Grid item xs={12} md={3} order={{ xs: 2, md: 1 }}>
-                                <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
-                                    <Paper variant="outlined" sx={{ p: 1, height: '100%' }}>
-                                        <PlayerList players={players} gameState={gameState} currentSocketId={socket?.id} />
-                                    </Paper>
-                                </Box>
-                              </Grid>
-                          )}
-                          <Grid item xs={12} md={ showSidebars ? 6 : 12 } order={{ xs: 1, md: 2 }} >
-                              <ProtectedRoute>
-                                  <AnimatePresence mode="wait">
-                                      <motion.div key={gameState} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} >
-                                          {renderGameContent()}
-                                      </motion.div>
-                                  </AnimatePresence>
-                              </ProtectedRoute>
-                          </Grid>
-                           {showSidebars && (
-                              <Grid item xs={12} md={3} order={{ xs: 3, md: 3 }}>
-                                <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
-                                    <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                                        <AnnouncerLog announcerLog={announcerLog} />
-                                    </Paper>
-                                </Box>
-                              </Grid>
-                          )}
-                      </Grid>
-                  }/>
-              </Routes>
-           </Grid>
+                             <Grid item xs={12} md={3} order={{ xs: 3, md: 3 }}>
+                               <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+                                   <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                       <AnnouncerLog announcerLog={announcerLog} />
+                                   </Paper>
+                               </Box>
+                             </Grid>
+                         )}
+                     </Grid>
+                 }/>
+           </Routes>
         </Container>
     </ThemeProvider>
   );
