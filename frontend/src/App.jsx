@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Routes, Route, Navigate, Link as RouterLink } from "react-router-dom";
+import { Routes, Route, Navigate, Link as RouterLink, Outlet } from "react-router-dom"; // Outlet eklendi
 import './App.css';
 import { io } from "socket.io-client";
 
@@ -17,6 +17,7 @@ import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'; // Admin ikonu
 import { Alert } from '@mui/material';
 
 import JoinScreen from './components/JoinScreen';
@@ -25,9 +26,16 @@ import GameInterface from './components/GameInterface';
 import ResultsScreen from './components/ResultsScreen';
 import PlayerList from './components/PlayerList';
 import AnnouncerLog from './components/AnnouncerLog';
+import AdminLayout from './components/admin/AdminLayout'; // Admin Layout import
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
+import AdminDashboardPage from './pages/admin/AdminDashboardPage'; // Admin Dashboard import
+// Diğer admin sayfalarını da import edeceğiz (şimdilik placeholder)
+// import AdminUserListPage from './pages/admin/AdminUserListPage';
+// import AdminQuestionListPage from './pages/admin/AdminQuestionListPage';
+// import AdminSettingsPage from './pages/admin/AdminSettingsPage';
+
 import createAppTheme from './theme';
 
 import { auth } from './firebaseConfig';
@@ -39,34 +47,62 @@ const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
 
-
+// --- Route Koruma Componentleri ---
 function ProtectedRoute({ children }) {
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
   const isLoading = useUserStore((state) => state.isLoading);
-
-  if (isLoading) {
-    return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
-  }
-
-  if (!isLoggedIn) {
-    return <Navigate to="/login" replace />;
-  }
+  if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
+  if (!isLoggedIn) { return <Navigate to="/login" replace />; }
   return children;
 }
 
 function GuestRoute({ children }) {
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
   const isLoading = useUserStore((state) => state.isLoading);
-
-  if (isLoading) {
-     return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
-  }
-
-  if (isLoggedIn) {
-    return <Navigate to="/" replace />;
-  }
+  if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
+  if (isLoggedIn) { return <Navigate to="/" replace />; }
   return children;
 }
+
+// --- YENİ: Admin Route Koruması (Temsili) ---
+function AdminRoute({ children }) {
+    const user = useUserStore((state) => state.user);
+    const isLoggedIn = useUserStore((state) => state.isLoggedIn);
+    const isLoading = useUserStore((state) => state.isLoading);
+
+    // GERÇEK UYGULAMADA BURADA GÜVENLİ ROL KONTROLÜ YAPILMALIDIR!
+    // Örneğin: const isAdmin = user?.roles?.includes('admin');
+    const isAdmin = user?.email === 'admin@example.com'; // ŞİMDİLİK GEÇİCİ KONTROL - MUTLAKA DEĞİŞTİR!
+
+    useEffect(() => {
+        if (!isLoading && isLoggedIn && !isAdmin) {
+             console.warn(">>> YETKİSİZ ERİŞİM DENEMESİ: Admin olmayan kullanıcı /admin yoluna erişmeye çalıştı.", user?.email);
+        }
+         if(!isLoading && !isLoggedIn) {
+            console.log("AdminRoute: Kullanıcı giriş yapmamış.");
+        }
+        if(!isLoading && isLoggedIn && isAdmin) {
+            console.log("AdminRoute: Admin kullanıcısı doğrulandı.");
+        }
+    }, [isLoading, isLoggedIn, isAdmin, user]);
+
+
+    if (isLoading) {
+       return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>;
+    }
+
+    if (!isLoggedIn) {
+       return <Navigate to="/login" state={{ from: '/admin' }} replace />; // Login'e yönlendir, sonra buraya dönsün
+    }
+
+    if (!isAdmin) {
+        // Admin değilse ana sayfaya veya yetkisiz sayfasına yönlendir
+        return <Navigate to="/" replace />;
+    }
+
+    return children; // Admin ise içeriği göster
+}
+// -------------------------------------------
 
 
 function App() {
@@ -99,37 +135,19 @@ function App() {
   useEffect(() => { const handleBeforeInstallPrompt = (event) => { event.preventDefault(); setInstallPromptEvent(event); if (!window.matchMedia('(display-mode: standalone)').matches) { setShowInstallButton(true); } }; window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt); return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); }; }, []);
 
   useEffect(() => {
-    console.log(">>> Auth Listener useEffect");
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.log(">>> onAuthStateChanged Triggered. User:", firebaseUser ? firebaseUser.uid : null);
       setUser(firebaseUser);
     });
-    return () => {
-        console.log(">>> Auth Listener useEffect cleanup.");
-        unsubscribe();
-        if (socketRef.current) {
-             console.log(">>> Component unmount: Socket bağlantısı kesiliyor.");
-             socketRef.current.disconnect();
-             setSocket(null);
-             setIsConnected(false);
-        }
-    };
+    return () => unsubscribe();
   }, [setUser]);
 
+  // Zustand State Listener
   useEffect(() => {
-    console.log(">>> Zustand user state listener kuruluyor.");
     const unsubscribe = useUserStore.subscribe(
       (state) => state.user,
-      (newUser, previousUser) => {
-        console.log(">>> Zustand user state DEĞİŞTİ!", { newUID: newUser?.uid });
-      }
+      (newUser, previousUser) => { console.log(">>> Zustand user state DEĞİŞTİ!", { newUID: newUser?.uid }); }
     );
-    const initialUser = useUserStore.getState().user;
-    console.log(">>> Zustand listener kuruldu. Başlangıç user state UID:", initialUser?.uid);
-    return () => {
-        console.log(">>> Zustand user state listener kaldırılıyor.");
-        unsubscribe();
-    } ;
+    return unsubscribe;
   }, []);
 
   const setupSocketListeners = useCallback((socketInstance) => {
@@ -153,31 +171,32 @@ function App() {
       const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
       const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
 
-      socketInstance.on('connect', handleConnect);
-      socketInstance.on('connect_error', handleConnectError);
-      socketInstance.on('disconnect', handleDisconnect);
-      socketInstance.on('error_message', handleErrorMessage);
-      socketInstance.on('reset_game', handleResetGame);
-      socketInstance.on('initial_state', handleInitialState);
-      socketInstance.on('tournament_state_update', handleStateUpdate);
-      socketInstance.on('new_question', handleNewQuestion);
-      socketInstance.on('question_timeout', handleQuestionTimeout);
-      socketInstance.on('answer_result', handleAnswerResult);
-      socketInstance.on('game_over', handleGameOver);
-      socketInstance.on('waiting_update', handleWaitingUpdate);
-      socketInstance.on('announcer_message', handleAnnouncerMessage);
+      newSocket.on('connect', handleConnect);
+      newSocket.on('connect_error', handleConnectError);
+      newSocket.on('disconnect', handleDisconnect);
+      newSocket.on('error_message', handleErrorMessage);
+      newSocket.on('reset_game', handleResetGame);
+      newSocket.on('initial_state', handleInitialState);
+      newSocket.on('tournament_state_update', handleStateUpdate);
+      newSocket.on('new_question', handleNewQuestion);
+      newSocket.on('question_timeout', handleQuestionTimeout);
+      newSocket.on('answer_result', handleAnswerResult);
+      newSocket.on('game_over', handleGameOver);
+      newSocket.on('waiting_update', handleWaitingUpdate);
+      newSocket.on('announcer_message', handleAnnouncerMessage);
 
   }, [currentQuestion, gameState]);
 
+   // Socket Bağlantısını Yöneten Ayrı useEffect
   useEffect(() => {
     console.log(`>>> Socket Bağlantı KONTROL useEffect: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
     let newSocket = null;
 
     if (!isLoading && isLoggedIn) {
-        const currentUser = auth.currentUser; // Token yerine direkt kullanıcıyı kontrol et
+        const currentUser = auth.currentUser;
         if (currentUser && (!socketRef.current || !socketRef.current.connected)) {
              console.log(`%c>>> Socket bağlantısı kuruluyor (useEffect - No Token): ${SERVER_URL}`, 'color: green; font-weight: bold;');
-             newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] }); // Token olmadan bağlan
+             newSocket = io(SERVER_URL, { transports: ['websocket', 'polling'] });
              setSocket(newSocket);
              window.socket = newSocket;
              setupSocketListeners(newSocket);
@@ -195,11 +214,12 @@ function App() {
 
     return () => {
         console.log(`>>> Socket Bağlantı useEffect TEMİZLENİYOR (isLoggedIn=${isLoggedIn}, isLoading=${isLoading})`);
-        // newSocket bu scope'ta tanımlı olmadığı için direkt erişilemez.
-        // Cleanup, socketRef üzerinden veya doğrudan state üzerinden yapılmalı.
-        // Zaten !isLoggedIn durumunda yukarıda disconnect çağrılıyor.
+        // Component unmount olduğunda socket'i kapatmak iyi bir pratik
+        // Eğer newSocket bu scope'ta oluşturulduysa onu kapatabiliriz ama state güncellemeleri nedeniyle
+        // ref kullanmak daha güvenli.
+        // Ancak çıkış yapıldığında zaten kapatılıyor.
     };
-  }, [isLoggedIn, isLoading, setupSocketListeners]); // setupSocketListeners eklendi
+  }, [isLoggedIn, isLoading, setupSocketListeners]);
 
   useEffect(() => {
     socketRef.current = socket;
@@ -207,36 +227,28 @@ function App() {
 
  const handleJoinTournament = useCallback(async () => {
     console.log('>>> handleJoinTournament ÇAĞRILDI!');
-
     const currentUser = auth.currentUser;
     if (!currentUser) {
         console.log('>>> Katılma başarısız: Firebase Auth kullanıcısı bulunamadı!');
         alert('Giriş yapılmamış veya kullanıcı bilgisi alınamadı. Lütfen tekrar giriş yapın.');
         return;
     }
-
     const userUid = currentUser.uid;
     const joinName = currentUser.displayName || currentUser.email || `Oyuncu_${userUid.substring(0,4)}`;
-    const userGrade = user?.grade; // Grade hala Zustand'dan geliyor
-
+    const userGrade = user?.grade;
     console.log('>>> Anlık Auth User UID:', userUid);
     console.log('>>> Anlık Zustand User (grade için):', JSON.stringify(user, null, 2));
     console.log(`>>> Kontrol: socket=${!!socket}, isConnected=${isConnected}`);
-
     if (socket && isConnected) {
         console.log('>>> Koşul sağlandı, join_tournament emit ediliyor (Doğrudan Auth UID ile):', { name: joinName, grade: userGrade, uid: userUid });
-        socket.emit('join_tournament', {
-            name: joinName,
-            grade: userGrade,
-            uid: userUid // <-- UID'yi doğrudan Auth'dan gönder
-        });
+        socket.emit('join_tournament', { name: joinName, grade: userGrade, uid: userUid });
         setWaitingMessage('Sunucuya katılım isteği gönderildi...');
         setIsPlayerReady(false);
     } else if (!isConnected || !socket) {
         console.log(`>>> Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
         alert('Sunucu bağlantısı bekleniyor veya kurulamadı...');
     }
-}, [socket, isConnected, user]);
+  }, [socket, isConnected, user]);
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -280,16 +292,10 @@ function App() {
 
   const renderGameContent = () => {
        const isAuthLoading = isLoading;
-       const isUserMissing = !user?.uid; // UID state'e gelmiş mi kontrol edelim
+       const isUserUidMissing = !user?.uid; // State'teki UID'yi kontrol et
        const isSocketDisconnected = !isConnected;
-       const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserMissing; // UID kontrolü eklendi
-       const joinButtonText = isAuthLoading
-           ? 'Yükleniyor...'
-           : (isSocketDisconnected
-               ? 'Bağlanıyor...'
-               : (isUserMissing
-                   ? 'Kullanıcı Bilgisi Bekleniyor...'
-                   : 'Turnuvaya Katıl'));
+       const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserUidMissing;
+       const joinButtonText = isAuthLoading ? 'Yükleniyor...' : (isSocketDisconnected ? 'Bağlanıyor...' : (isUserUidMissing ? 'Kullanıcı Bilgisi Bekleniyor...' : 'Turnuvaya Katıl'));
 
        if (isAuthLoading || (isSocketDisconnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) {
             return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isAuthLoading ? "Kimlik doğrulanıyor..." : connectionMessage}</Typography></Box>;
@@ -308,15 +314,7 @@ function App() {
             return (
                 <Paper elevation={3} sx={{p:3, textAlign:'center'}}>
                    <Typography variant="h5">Turnuvaya Katılmaya Hazır Mısın?</Typography>
-                    <Button
-                       variant="contained"
-                       size="large"
-                       onClick={handleJoinTournament}
-                       sx={{mt: 2}}
-                       disabled={joinButtonDisabled}
-                    >
-                       {joinButtonText}
-                    </Button>
+                    <Button variant="contained" size="large" onClick={handleJoinTournament} sx={{mt: 2}} disabled={joinButtonDisabled} > {joinButtonText} </Button>
                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{waitingMessage}</Typography>
                    <Box mt={2} p={1} border="1px dashed grey" borderRadius={1} sx={{textAlign: 'left', fontSize: '0.75rem'}}>
                        <Typography variant="caption" display="block" sx={{fontWeight: 'bold'}}>Debug Info:</Typography>
@@ -339,22 +337,25 @@ function App() {
 
   const showSidebars = (gameState === GAME_STATES.WAITING_TOURNAMENT || gameState === GAME_STATES.TOURNAMENT_RUNNING || gameState === GAME_STATES.GAME_OVER) && players.length > 0 && isConnected;
 
+  // Admin rol kontrolü (TEMSİLİ - Burayı gerçek rolle değiştir!)
+  const isAdminUser = user?.email === 'admin@example.com'; // Kendi admin email'ini veya UID'ni kullan
+
   return (
     <ThemeProvider theme={theme}>
        <CssBaseline />
        <AppBar position="static" elevation={1}>
          <Container maxWidth="xl">
            <Toolbar disableGutters sx={{ justifyContent: 'space-between' }}>
-             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-               Asrın Oyunu
-             </Typography>
-             {isLoading ? (
-                <CircularProgress size={24} color="inherit"/>
-             ) : isLoggedIn ? (
+             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}> Asrın Oyunu </Typography>
+             {isLoading ? ( <CircularProgress size={24} color="inherit"/> ) :
+              isLoggedIn ? (
                <Box sx={{ display: 'flex', alignItems: 'center'}}>
-                 <Button color="inherit" component={RouterLink} to="/profile" startIcon={<AccountCircleIcon/>}>
-                     {user?.displayName || user?.email}
-                 </Button>
+                 {/* YENİ: Admin Paneli Butonu */}
+                 {isAdminUser && (
+                     <Button color="inherit" component={RouterLink} to="/admin" startIcon={<AdminPanelSettingsIcon/>} sx={{ mr: 1 }}> Admin </Button>
+                 )}
+                 {/* -------------- */}
+                 <Button color="inherit" component={RouterLink} to="/profile" startIcon={<AccountCircleIcon/>}> {user?.displayName || user?.email} </Button>
                  <Button color="inherit" onClick={handleLogout} startIcon={<LogoutIcon/>} sx={{ ml: 1 }}>Çıkış Yap</Button>
                </Box>
              ) : (
@@ -370,52 +371,55 @@ function App() {
        <Container maxWidth="xl" sx={{ marginTop: 2, paddingBottom: 4 }}>
            {showInstallButton && installPromptEvent && ( <Button fullWidth variant="outlined" onClick={handleInstallClick} startIcon={<InstallMobileIcon />} size="small" sx={{ mb: 2 }}> Uygulamayı Yükle </Button> )}
            <Grid container spacing={2} alignItems="flex-start">
-               {showSidebars && (
-                 <Grid item xs={12} md={3} order={{ xs: 2, md: 1 }}>
-                   <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
-                       <Paper variant="outlined" sx={{ p: 1, height: '100%' }}>
-                           <PlayerList players={players} gameState={gameState} currentSocketId={socket?.id} />
-                       </Paper>
-                   </Box>
-                 </Grid>
-                )}
-               <Grid item xs={12} md={ showSidebars ? 6 : 12 } order={{ xs: 1, md: 2 }} >
-                   <Box>
-                       <Routes>
-                           <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
-                           <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
-                           <Route path="/" element={
-                               <ProtectedRoute>
-                                   <AnimatePresence mode="wait">
-                                       <motion.div
-                                           key={gameState}
-                                           initial={{ opacity: 0 }}
-                                           animate={{ opacity: 1 }}
-                                           exit={{ opacity: 0 }}
-                                           transition={{ duration: 0.3 }}
-                                       >
-                                           {renderGameContent()}
-                                       </motion.div>
-                                   </AnimatePresence>
-                               </ProtectedRoute>
-                           }/>
-                           <Route path="/profile" element={
-                                <ProtectedRoute>
-                                    <ProfilePage />
-                                </ProtectedRoute>
-                           }/>
-                       </Routes>
-                   </Box>
-                </Grid>
-               {showSidebars && (
-                 <Grid item xs={12} md={3} order={{ xs: 3, md: 3 }}>
-                   <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
-                       <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                           <AnnouncerLog announcerLog={announcerLog} />
-                       </Paper>
-                   </Box>
-                 </Grid>
-               )}
+              {/* Sidebarsız Route'lar (Login, Register, Admin) */}
+              <Routes>
+                  <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
+                  <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+                  <Route path="/profile" element={ <ProtectedRoute> <ProfilePage /> </ProtectedRoute> }/>
+
+                  {/* YENİ: Admin Rotaları */}
+                  <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
+                      <Route index element={<AdminDashboardPage />} />
+                      {/* <Route path="users" element={<AdminUserListPage />} /> */}
+                      {/* <Route path="questions" element={<AdminQuestionListPage />} /> */}
+                      {/* <Route path="settings" element={<AdminSettingsPage />} /> */}
+                      {/* Diğer admin sayfaları buraya eklenecek */}
+                  </Route>
+                  {/* -------------- */}
+
+                  {/* Ana Oyun Alanı (Sidebar'lı) */}
+                  <Route path="/" element={
+                      <Grid container spacing={2} alignItems="flex-start">
+                          {showSidebars && (
+                              <Grid item xs={12} md={3} order={{ xs: 2, md: 1 }}>
+                                <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+                                    <Paper variant="outlined" sx={{ p: 1, height: '100%' }}>
+                                        <PlayerList players={players} gameState={gameState} currentSocketId={socket?.id} />
+                                    </Paper>
+                                </Box>
+                              </Grid>
+                          )}
+                          <Grid item xs={12} md={ showSidebars ? 6 : 12 } order={{ xs: 1, md: 2 }} >
+                              <ProtectedRoute>
+                                  <AnimatePresence mode="wait">
+                                      <motion.div key={gameState} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} >
+                                          {renderGameContent()}
+                                      </motion.div>
+                                  </AnimatePresence>
+                              </ProtectedRoute>
+                          </Grid>
+                           {showSidebars && (
+                              <Grid item xs={12} md={3} order={{ xs: 3, md: 3 }}>
+                                <Box sx={{ position: 'sticky', top: '80px', maxHeight: 'calc(100vh - 100px)', overflowY: 'auto' }}>
+                                    <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                                        <AnnouncerLog announcerLog={announcerLog} />
+                                    </Paper>
+                                </Box>
+                              </Grid>
+                          )}
+                      </Grid>
+                  }/>
+              </Routes>
            </Grid>
         </Container>
     </ThemeProvider>
