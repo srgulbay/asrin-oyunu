@@ -5,11 +5,33 @@ const http = require('http');
 const { Server } = require("socket.io");
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { doc, updateDoc, increment, getFirestore } = require("firebase/firestore"); // Firestore update için
+const { initializeApp } = require("firebase/app"); // app'i doğrudan kullanmak yerine
+
+// Firebase'i burada da başlatmamız gerekebilir (eğer db export edilmediyse)
+// VEYA db'yi firebaseConfig'den import etmeliyiz.
+// ÖNEMLİ: Eğer firebaseConfig.js backend'de yoksa, onu oluşturup db'yi export etmelisin.
+// Varsayım: firebaseConfig.js var ve db'yi export ediyor.
+// const { db } = require('./firebaseConfig'); // Veya yolu ayarla
+
+// ---- GEÇİCİ: Eğer firebaseConfig yoksa manuel başlatma (önerilmez) ----
+let db;
+try {
+    // Bu kısmı kendi firebaseConfig import'una göre düzenle
+    // db = getFirestore(); // Eğer firebaseConfig'de app export ediliyorsa
+    console.log("Firestore bağlantısı (varsa) hazır.");
+} catch (e) {
+    console.error("Firestore başlatılamadı! Kullanıcı verileri GÜNCELLENEMEYECEK.", e);
+    db = null; // Firestore kullanılamazsa db null olsun
+}
+//-------------------------------------------------------------------
+
 
 const app = express();
 const server = http.createServer(app);
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
 
+// ... (pool bağlantı kontrolü ve CORS ayarları aynı kalıyor) ...
 if (pool) {
   pool.connect((err, client, release) => {
     if (err) return console.error('DB Bağlantı Hatası:', err.stack);
@@ -38,6 +60,7 @@ const io = new Server(server, {
   }
 });
 
+
 const PORT = process.env.PORT || 3000;
 
 const GAME_MODES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
@@ -61,25 +84,50 @@ const MAX_COMBO_BONUS = 300;
 const GRADE_DIFFICULTY_FACTOR = 0.10;
 const MAX_DIFFICULTY_BONUS_MULTIPLIER = 1.5;
 const MIN_DIFFICULTY_PENALTY_MULTIPLIER = 0.5;
-const SIGNIFICANT_GRADE_DIFFERENCE = 3; // <-- YENİ: Özel mesaj için eşik
+const SIGNIFICANT_GRADE_DIFFERENCE = 3;
+
+// --- YENİ: Kaynak ve XP Sabitleri ---
+const XP_PER_CORRECT_ANSWER = 10; // Doğru cevap başına XP
+const BRANCH_RESOURCE_MAP = {
+    'Matematik': 'zekaKristali',
+    'Türkçe': 'bilgelik',
+    'Fen Bilimleri': 'enerji',
+    'Sosyal Bilgiler': 'kultur',
+    'Tarih': 'kultur',
+    'Coğrafya': 'kultur',
+    'İngilizce': 'bilgelik',
+    'Teknoloji': 'zekaKristali',
+    // Diğer branşları buraya ekle
+};
+const DEFAULT_RESOURCES = { bilgelik: 0, zekaKristali: 0, enerji: 0, kultur: 0 };
+// ---------------------------------
 
 function getNumericGrade(gradeString) {
     if (!gradeString) return null;
-    if (gradeString.toLowerCase() === 'okul öncesi') return 0;
+    if (String(gradeString).toLowerCase() === 'okul öncesi') return 0;
     const gradeNum = parseInt(gradeString, 10);
     return isNaN(gradeNum) ? null : gradeNum;
 }
 
 function getSortedPlayerList() {
     return Array.from(tournamentPlayers.entries())
-        .map(([id, data]) => ({ id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade }))
+        .map(([id, data]) => ({
+             id,
+             name: data.name,
+             score: data.score,
+             isReady: data.isReady,
+             grade: data.grade,
+             // Analiz için ek bilgiler eklenebilir
+             xpEarned: data.currentTournamentXP,
+             resourcesEarned: data.currentTournamentResources
+        }))
         .sort((a, b) => b.score - a.score);
 }
 
 function broadcastTournamentState() {
     io.to(TOURNAMENT_ROOM).emit('tournament_state_update', {
         gameState: currentGameState,
-        players: getSortedPlayerList(),
+        players: getSortedPlayerList(), // Artık XP ve kaynakları da içerebilir (ama genellikle finalde gönderilir)
         currentQuestionIndex: currentQuestionIndex,
         totalQuestions: gameQuestions.length
     });
@@ -97,6 +145,7 @@ function sendAnnouncerMessage(message, type = 'info') {
     });
 }
 
+// ... (generateQuestionSummaryAnnouncements aynı kalabilir) ...
 function generateQuestionSummaryAnnouncements(qIndex) {
     if (qIndex < 0 || qIndex >= gameQuestions.length) return;
     if (currentQuestionAnswers.size === 0 && currentGameState === GAME_MODES.TOURNAMENT_RUNNING) { sendAnnouncerMessage(`Soru ${qIndex + 1} için kimse cevap vermedi! 🤷`, "warning"); return; }
@@ -129,20 +178,20 @@ async function startTournament() {
     currentGameState = GAME_MODES.TOURNAMENT_RUNNING;
 
     try {
-        const sampleQuestions = [
+        const sampleQuestions = [ // Örnek sorulara branch ve grade eklenmeli
             { id: 1, question_text: '1+1 Kaç Yapar?', options: ['1', '2', '3', '4'], correct_answer: '2', grade: '1', branch: 'Matematik' },
-            { id: 2, question_text: 'Türkiye\'nin başkenti?', options: ['İstanbul', 'İzmir', 'Ankara', 'Bursa'], correct_answer: 'Ankara', grade: '5', branch: 'Sosyal' },
-            { id: 3, question_text: 'React bir ...?', options: ['Framework', 'Kütüphane', 'Dil', 'Veritabanı'], correct_answer: 'Kütüphane', grade: '11', branch: 'Teknoloji' },
-            { id: 4, question_text: 'Dünyanın en yüksek dağı?', options: ['Ağrı Dağı', 'Everest', 'K2', 'Kangchenjunga'], correct_answer: 'Everest', grade: '7', branch: 'Coğrafya' },
-            { id: 5, question_text: 'İstanbul kaç yılında fethedildi?', options: ['1453', '1071', '1923', '1299'], correct_answer: '1453', grade: '8', branch: 'Tarih' }
+            { id: 2, question_text: 'Türkiye\'nin başkenti?', options: ['İstanbul', 'İzmir', 'Ankara', 'Bursa'], correct_answer: 'Ankara', grade: '5', branch: 'Sosyal Bilgiler' },
+            { id: 3, question_text: 'Fotosentez nedir?', options: ["Bitkilerin su içmesi", "Bitkilerin güneş enerjisiyle besin üretmesi", "Hayvanların uyuması"], correct_answer: 'Bitkilerin güneş enerjisiyle besin üretmesi', grade: '6', branch: 'Fen Bilimleri'},
+            { id: 4, question_text: 'Üçgenin iç açıları toplamı?', options: ['90', '180', '270', '360'], correct_answer: '180', grade: '5', branch: 'Matematik'},
+            { id: 5, question_text: 'What is the capital of Türkiye?', options: ['Istanbul', 'Izmir', 'Ankara', 'Bursa'], correct_answer: 'Ankara', grade: '4', branch: 'İngilizce' }
          ];
 
         if (!pool) {
             console.warn("UYARI: DB yok, örnek sorular kullanılıyor.");
             gameQuestions = sampleQuestions;
         } else {
+            // TODO: Oyuncu sınıflarına göre daha akıllı soru seçimi
             const result = await pool.query('SELECT id, question_text, options, correct_answer, grade, branch FROM questions ORDER BY RANDOM() LIMIT 5');
-
             if (result.rows.length === 0) {
                 console.warn("UYARI: Veritabanında uygun soru bulunamadı, örnek sorular kullanılıyor.");
                 gameQuestions = sampleQuestions;
@@ -153,8 +202,18 @@ async function startTournament() {
         }
 
         currentQuestionIndex = -1;
-        tournamentPlayers.forEach(player => { player.score = 0; player.combo = 0; player.isReady = false; });
-        broadcastTournamentState();
+        // --- GÜNCELLEME: Oyuncu turnuva verilerini sıfırla ---
+        tournamentPlayers.forEach(player => {
+             player.score = 0;
+             player.combo = 0;
+             player.isReady = false;
+             player.currentTournamentXP = 0;
+             player.currentTournamentResources = { ...DEFAULT_RESOURCES };
+             // Diğer takip edilecek stat'lar sıfırlanabilir (correctAnswers, totalAnswerTimeMs etc.)
+        });
+        // --------------------------------------------------
+
+        broadcastTournamentState(); // Oyuncuların sıfırlanmış skorlarını gönder
         setTimeout(sendNextQuestion, 3000);
     } catch (error) {
         console.error("Turnuva başlatılırken hata:", error);
@@ -165,6 +224,7 @@ async function startTournament() {
     }
 }
 
+// ... (sendNextQuestion aynı kalabilir, questionData'ya grade ve branch eklenmişti) ...
 function sendNextQuestion() {
     clearTimeout(questionTimer);
     if (currentQuestionIndex >= 0 && currentQuestionIndex < gameQuestions.length) {
@@ -179,14 +239,14 @@ function sendNextQuestion() {
     }
 
     const question = gameQuestions[currentQuestionIndex];
-    if (!question || !question.question_text || !question.options || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined') {
+    if (!question || !question.question_text || !question.options || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined') { // grade kontrolü eklendi
         console.error("HATA: Geçersiz soru formatı veya eksik sınıf bilgisi!", question);
         sendAnnouncerMessage("Sıradaki soru yüklenirken hata oluştu!", "error");
         endTournament();
         return;
     }
 
-    const questionData = { index: currentQuestionIndex, total: gameQuestions.length, text: question.question_text, options: question.options, timeLimit: QUESTION_TIME_LIMIT, grade: question.grade, branch: question.branch };
+    const questionData = { index: currentQuestionIndex, total: gameQuestions.length, text: question.question_text, options: question.options, timeLimit: QUESTION_TIME_LIMIT, grade: question.grade, branch: question.branch }; // grade ve branch gönderiliyor
     const questionAnnounceText = `Soru ${currentQuestionIndex + 1}/${gameQuestions.length}: ${question.question_text}`;
 
     setTimeout(() => {
@@ -194,35 +254,92 @@ function sendNextQuestion() {
         console.log(`Soru ${currentQuestionIndex + 1}/${gameQuestions.length} (Sınıf: ${question.grade}) gönderiliyor...`);
         questionStartTime = Date.now();
         io.to(TOURNAMENT_ROOM).emit('new_question', questionData);
-    }, 1000);
+    }, 1000); // Özet mesajlarından sonra 1sn bekle
 
     questionTimer = setTimeout(() => {
         console.log(`Soru ${currentQuestionIndex + 1} için süre doldu.`);
         io.to(TOURNAMENT_ROOM).emit('question_timeout', { questionIndex: currentQuestionIndex });
         sendNextQuestion();
-    }, QUESTION_TIME_LIMIT * 1000 + 1000);
+    }, QUESTION_TIME_LIMIT * 1000 + 1000); // Soru gösterme + Süre
 }
 
-function endTournament() {
+
+// --- GÜNCELLEME: endTournament Fonksiyonu ---
+async function endTournament() {
     clearTimeout(questionTimer);
-    if(currentQuestionIndex >= 0 && gameQuestions.length > 0 && currentQuestionIndex < gameQuestions.length) {
-         generateQuestionSummaryAnnouncements(currentQuestionIndex);
+    if (currentQuestionIndex >= 0 && currentQuestionIndex < gameQuestions.length) {
+        generateQuestionSummaryAnnouncements(currentQuestionIndex);
     }
     console.log("Turnuva bitti!");
     currentGameState = GAME_MODES.GAME_OVER;
-    const results = getSortedPlayerList().map(({id, name, score}) => ({id, name, score}));
-    const winnerName = results[0]?.name || 'belli değil';
+
+    // 1. Detaylı Sonuçları Hazırla
+    const finalPlayerData = Array.from(tournamentPlayers.entries());
+    const detailedResults = finalPlayerData
+        .map(([id, data], index) => ({
+            id: id,
+            name: data.name,
+            rank: index + 1, // Sıralama (skora göre)
+            finalScore: data.score,
+            xpEarned: data.currentTournamentXP,
+            resourcesEarned: data.currentTournamentResources,
+            uid: data.uid // Firestore güncellemesi için UID gerekli
+        }))
+        .sort((a, b) => b.finalScore - a.finalScore); // Skora göre tekrar sırala (rank için)
+
+    // Rank'ı tekrar ata
+    detailedResults.forEach((player, index) => { player.rank = index + 1; });
+
+    const winnerName = detailedResults[0]?.name || 'belli değil';
     sendAnnouncerMessage(`Yarışma sona erdi! Kazanan ${winnerName}! 🏆 İşte sonuçlar:`, "gameover");
-    io.to(TOURNAMENT_ROOM).emit('game_over', { results });
+
+    // 2. Frontend'e Detaylı Sonuçları Gönder
+    io.to(TOURNAMENT_ROOM).emit('game_over', { results: detailedResults });
+
+    // 3. Veritabanını Güncelle (Her oyuncu için XP ve Kaynaklar)
+    if (db) { // Sadece Firestore bağlantısı varsa yap
+        const updatePromises = detailedResults.map(playerResult => {
+            if (!playerResult.uid) {
+                 console.error(`Oyuncu ${playerResult.name} için UID bulunamadı, güncelleme atlanıyor.`);
+                 return Promise.resolve(); // Bu oyuncuyu atla
+            }
+            const userDocRef = doc(db, "users", playerResult.uid);
+            const updates = {
+                xp: increment(playerResult.xpEarned),
+                [`resources.bilgelik`]: increment(playerResult.resourcesEarned.bilgelik || 0),
+                [`resources.zekaKristali`]: increment(playerResult.resourcesEarned.zekaKristali || 0),
+                [`resources.enerji`]: increment(playerResult.resourcesEarned.enerji || 0),
+                [`resources.kultur`]: increment(playerResult.resourcesEarned.kultur || 0),
+                // TODO: Seviye atlama mantığı eklenebilir (yeni XP'ye göre)
+            };
+             console.log(`Firestore güncelleniyor: User ${playerResult.uid}, XP+=${playerResult.xpEarned}, Resources+=`, playerResult.resourcesEarned);
+            return updateDoc(userDocRef, updates).catch(err => {
+                console.error(`Firestore güncelleme hatası (${playerResult.uid}):`, err);
+            });
+        });
+
+        try {
+            await Promise.all(updatePromises);
+            console.log("Tüm oyuncu verileri Firestore'da güncellendi.");
+        } catch (error) {
+            console.error("Firestore güncellemeleri sırasında toplu hata:", error);
+        }
+    } else {
+        console.warn("Firestore bağlantısı yok, kullanıcı verileri güncellenemedi.");
+    }
+
+    // 4. Oyunu Sıfırla (Gecikmeli)
     setTimeout(() => {
         console.log("Oyun durumu IDLE'a dönüyor.");
         currentGameState = GAME_MODES.IDLE;
-        tournamentPlayers.clear();
+        tournamentPlayers.clear(); // Geçici turnuva verilerini temizle
         gameQuestions = [];
         currentQuestionIndex = -1;
         io.to(TOURNAMENT_ROOM).emit('reset_game', { message: 'Oyun bitti. Yeni oyun bekleniyor.' });
-    }, 15000);
+    }, 15000); // 15 saniye sonra sıfırla
 }
+// ---------------------------------------
+
 
 io.on('connection', (socket) => {
   console.log(`Bağlandı: ${socket.id}, Durum: ${currentGameState}`);
@@ -231,6 +348,13 @@ io.on('connection', (socket) => {
   socket.on('join_tournament', (data) => {
     const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`;
     const playerGrade = data?.grade;
+    const playerUid = data?.uid; // --- YENİ: UID bilgisini al ---
+
+    if (!playerUid) {
+        console.error(`Katılma isteği reddedildi: Oyuncu ${playerName} için UID gelmedi.`);
+        socket.emit('error_message', { message: 'Kimlik bilgileri eksik, katılamazsınız.' });
+        return;
+    }
 
     if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.GAME_OVER ) {
         socket.emit('error_message', { message: 'Devam eden oyun var veya yeni bitti.' });
@@ -242,7 +366,7 @@ io.on('connection', (socket) => {
         return;
     }
 
-    console.log(`Oyuncu ${socket.id} (${playerName}, Sınıf: ${playerGrade || 'Belirtilmemiş'}) turnuvaya katılıyor.`);
+    console.log(`Oyuncu ${socket.id} (${playerName}, Sınıf: ${playerGrade || 'Belirtilmemiş'}, UID: ${playerUid}) turnuvaya katılıyor.`);
     socket.join(TOURNAMENT_ROOM);
 
     tournamentPlayers.set(socket.id, {
@@ -250,7 +374,10 @@ io.on('connection', (socket) => {
         score: 0,
         combo: 0,
         isReady: false,
-        grade: playerGrade
+        grade: playerGrade,
+        uid: playerUid, // UID sakla
+        currentTournamentXP: 0,
+        currentTournamentResources: { ...DEFAULT_RESOURCES },
     });
 
     if (currentGameState === GAME_MODES.IDLE) {
@@ -293,7 +420,10 @@ io.on('connection', (socket) => {
     if (currentQuestionAnswers.has(socket.id)) { console.log(`${player.name} (${socket.id}) bu soruya zaten cevap verdi.`); return; }
 
     const question = gameQuestions[currentQuestionIndex];
-    if (!question || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined') { console.error(`HATA: Soru ${currentQuestionIndex} için cevap kontrolü yapılamadı!`); return; }
+    if (!question || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined' || typeof question.branch === 'undefined') { // branch kontrolü eklendi
+        console.error(`HATA: Soru ${currentQuestionIndex} için cevap kontrolü yapılamadı! Gerekli alanlar eksik.`);
+        return;
+    }
 
     const correctAnswer = question.correct_answer;
     const timeDiffMs = answerTime - questionStartTime;
@@ -304,9 +434,9 @@ io.on('connection', (socket) => {
     let correct = false;
     let comboBroken = false;
     let currentCombo = player.combo || 0;
-    let adjustedBaseScore = BASE_SCORE; // Zorluk ayarı sonrası temel puan
-    let gradeDifference = 0; // Hesaplamak için
-    let difficultyBonusPoints = 0; // Sadece zorluktan gelen bonus
+    let adjustedBaseScore = BASE_SCORE;
+    let gradeDifference = 0;
+    let difficultyBonusPoints = 0;
 
     if (data.answer === correctAnswer) {
         correct = true;
@@ -323,24 +453,30 @@ io.on('connection', (socket) => {
             const difficultyMultiplier = 1.0 + (gradeDifference * GRADE_DIFFICULTY_FACTOR);
             const cappedMultiplier = Math.max(MIN_DIFFICULTY_PENALTY_MULTIPLIER, Math.min(difficultyMultiplier, MAX_DIFFICULTY_BONUS_MULTIPLIER));
             adjustedBaseScore = BASE_SCORE * cappedMultiplier;
-            difficultyBonusPoints = Math.max(0, Math.round(adjustedBaseScore - BASE_SCORE)); // Sadece pozitif fark bonus sayılır
-            console.log(`[Puan Ayarlama] OyuncuSınıf: ${playerGradeNum}, SoruSınıf: ${questionGradeNum}, Fark: ${gradeDifference}, Çarpan: ${cappedMultiplier.toFixed(2)}, AyarlanmışPuan: ${Math.round(adjustedBaseScore)}`);
+            difficultyBonusPoints = Math.max(0, Math.round(adjustedBaseScore - BASE_SCORE));
         } else {
-            console.warn(`[Puan Ayarlama] Sınıf bilgisi eksik veya geçersiz. Oyuncu: ${player.grade}, Soru: ${question.grade}. Standart puan kullanılıyor.`);
+             adjustedBaseScore = BASE_SCORE; // Sınıf yoksa standart puan
         }
 
         pointsAwarded = Math.round(adjustedBaseScore + timeBonus + comboBonus);
-
         player.score += pointsAwarded;
+
+        // --- YENİ: XP ve Kaynak Ekleme ---
+        player.currentTournamentXP += XP_PER_CORRECT_ANSWER;
+        const resourceType = BRANCH_RESOURCE_MAP[question.branch];
+        if (resourceType && player.currentTournamentResources.hasOwnProperty(resourceType)) {
+            player.currentTournamentResources[resourceType]++;
+            console.log(`Kaynak kazanıldı: +1 ${resourceType}`);
+        }
+        // -----------------------------
+
         console.log(`Doğru! ${player.name} (${socket.id}) +${pointsAwarded}p. Skor: ${player.score}, Kombo: ${player.combo}`);
 
-        // --- YENİ: Özel Zorluk Başarısı Mesajı ---
         if (gradeDifference >= SIGNIFICANT_GRADE_DIFFERENCE && difficultyBonusPoints > 0) {
              setTimeout(() => sendAnnouncerMessage(`İnanılmaz! ${player.name}, ${gradeDifference} sınıf üstü soruyu doğru cevapladı! +${difficultyBonusPoints} zorluk bonusu kazandı! 🚀`, "bonus"), 500);
         }
-        // -----------------------------------------
-
         if (player.combo >= 2) { setTimeout(()=> sendAnnouncerMessage(`${player.name} ${player.combo}x Kombo! 💪 +${comboBonus} bonus!`, "combo"), 300); }
+
     } else {
         comboBroken = player.combo > 0;
         player.combo = 0;
@@ -350,39 +486,36 @@ io.on('connection', (socket) => {
 
     currentQuestionAnswers.set(socket.id, { answer: data.answer, timeMs: timeDiffMs, correct: correct });
     socket.emit('answer_result', { correct, score: player.score, pointsAwarded, combo: player.combo, comboBroken, questionIndex: currentQuestionIndex, submittedAnswer: data.answer });
-    broadcastTournamentState();
+    broadcastTournamentState(); // Skoru hemen güncelle
   });
 
+  // ... (disconnect olayı aynı kalabilir) ...
   socket.on('disconnect', (reason) => {
       console.log(`[Disconnect] ID: ${socket.id}, Sebep: ${reason}, Mevcut Durum: ${currentGameState}`);
       if (tournamentPlayers.has(socket.id)) {
           const player = tournamentPlayers.get(socket.id);
           const wasReady = player.isReady;
           const playerName = player.name;
+          const playerUid = player.uid; // UID al
           tournamentPlayers.delete(socket.id);
           console.log(`[Disconnect] Oyuncu ${socket.id} (${playerName}) silindi. Kalan Oyuncu Sayısı: ${tournamentPlayers.size}`);
           sendAnnouncerMessage(`${playerName} yarışmadan ayrıldı.`, "leave");
 
           if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.WAITING_TOURNAMENT) {
-              console.log(`[Disconnect] Durum ${currentGameState}. broadcastTournamentState çağrılıyor.`);
-              broadcastTournamentState();
+              broadcastTournamentState(); // Önce state'i güncelle
               if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && wasReady) {
                   const allPlayersArray = Array.from(tournamentPlayers.values());
                   const remainingPlayerCount = allPlayersArray.length;
                   const allRemainingReady = remainingPlayerCount >= 1 && allPlayersArray.every(p => p.isReady);
-                  console.log(`[Disconnect] Bekleme odası kontrolü: Kalan Oyuncu: ${remainingPlayerCount}, Hazır mıydı?: ${wasReady}, Kalanlar Hazır mı?: ${allRemainingReady}`);
-                  if (allRemainingReady) {
+                   if (allRemainingReady) {
                       console.log("[Disconnect] Hazır oyuncu ayrıldı, kalanlar hazır. Turnuva başlatılıyor...");
                       setTimeout(startTournament, 1000);
                   }
               }
               if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING) {
-                   console.log(`[Disconnect] Oyun devam ediyor kontrolü: Kalan Oyuncu Sayısı: ${tournamentPlayers.size}`);
-                   if (tournamentPlayers.size < 1) {
+                  if (tournamentPlayers.size < 1) {
                         console.log("[Disconnect] Oyuncu kalmadı, turnuva bitiriliyor.");
-                        endTournament();
-                    } else {
-                        console.log(`[Disconnect] Oyun devam ediyor, oyuncu sayısı yeterli (${tournamentPlayers.size}).`);
+                        endTournament(); // Oyuncu kalmazsa bitir
                     }
                }
           } else {
@@ -392,6 +525,7 @@ io.on('connection', (socket) => {
           console.log(`[Disconnect] Ayrılan socket ${socket.id} turnuva listesinde değildi.`);
       }
     });
+
 });
 
 app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/plain'); res.status(200).send(`Asrin Oyunu Backend Çalışıyor! Durum: ${currentGameState}, Oyuncular: ${tournamentPlayers.size}`); });

@@ -1,25 +1,24 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-// --- MUI Imports ---
-import List from '@mui/material/List';
-import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemAvatar from '@mui/material/ListItemAvatar'; // Avatar için
-import Avatar from '@mui/material/Avatar'; // Avatar için
-import Paper from '@mui/material/Paper';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import Divider from '@mui/material/Divider'; // Ayırıcı
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // Kupa ikonu
-import Box from '@mui/material/Box';
-// --- MUI Imports Sonu ---
+import { List, ListItem, ListItemText, ListItemIcon, ListItemAvatar, Avatar, Paper, Typography, Button, Divider, Box, Chip } from '@mui/material';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import StarIcon from '@mui/icons-material/Star'; // XP ikonu
+import useUserStore from '../store/userStore'; // UID karşılaştırması için
 
-// Props: gameResults, waitingMessage, currentSocketId
-function ResultsScreen({ gameResults, waitingMessage, currentSocketId }) {
+// Kaynak ikonları (ProfilePage ile aynı olabilir)
+const resourceInfo = {
+  bilgelik: { icon: '📚', color: 'info' }, // MUI renk paletini kullanabiliriz
+  zekaKristali: { icon: '💎', color: 'warning' },
+  enerji: { icon: '⚡', color: 'error' },
+  kultur: { icon: '🌍', color: 'success' },
+};
+
+function ResultsScreen({ gameResults, waitingMessage }) { // currentSocketId kaldırıldı, userStore'dan alınacak
+  const currentUser = useUserStore((state) => state.user); // Giriş yapmış kullanıcıyı al
+
   if (!gameResults || gameResults.length === 0) {
        return <Typography sx={{ textAlign: 'center', mt: 3 }}>Sonuçlar hesaplanıyor...</Typography>;
-   }
+  }
 
   return (
     <Paper elevation={3} sx={{ padding: { xs: 2, sm: 3 }, textAlign: 'center' }}>
@@ -32,38 +31,64 @@ function ResultsScreen({ gameResults, waitingMessage, currentSocketId }) {
         <Typography variant="h4" component="h2" gutterBottom>
           Oyun Bitti! İşte Sonuçlar:
         </Typography>
-        <List sx={{ width: '100%', maxWidth: 400, margin: 'auto', bgcolor: 'background.paper', borderRadius: 1 }}>
+        <List sx={{ width: '100%', maxWidth: 500, margin: 'auto', bgcolor: 'background.paper', borderRadius: 1, mb: 3 }}>
           {gameResults.map((result, i) => (
-            <React.Fragment key={result.id || `result-${i}`}>
-              {/* Her öğe için animasyonlu div */}
-               <motion.div
-                   initial={{ opacity: 0, x: -20 }}
-                   animate={{ opacity: 1, x: 0 }}
-                   transition={{ delay: i * 0.15 + 0.4 }} // Biraz daha belirgin gecikme
-                >
-                  <ListItem
-                     secondaryAction={ // Sağ tarafa ikonu koyalım
+            <React.Fragment key={result.uid || result.id || `result-${i}`}>
+                <ListItem
+                    secondaryAction={
                        <ListItemIcon sx={{justifyContent: 'flex-end'}}>
-                          {i === 0 ? <EmojiEventsIcon sx={{color: 'gold'}}/> : (i === 1 ? <EmojiEventsIcon sx={{color: 'silver'}}/> : (i === 2 ? <EmojiEventsIcon sx={{color: '#cd7f32'}}/> : null))}
+                          {i === 0 ? <EmojiEventsIcon sx={{color: 'gold', fontSize: '1.5rem'}}/> : (i === 1 ? <EmojiEventsIcon sx={{color: 'silver', fontSize: '1.4rem'}}/> : (i === 2 ? <EmojiEventsIcon sx={{color: '#cd7f32', fontSize: '1.3rem'}}/> : null))}
                        </ListItemIcon>
-                     }
-                     sx={{ backgroundColor: result.id === currentSocketId ? 'action.selected' : 'transparent' }}
-                   >
-                       <ListItemAvatar>
-                           <Avatar sx={{ bgcolor: i < 3 ? 'secondary.main' : 'primary.main', width: 32, height: 32 }}>
-                               {/* Sıra numarasını avatar içine */}
-                               <Typography variant="body2" sx={{color: 'white'}}>{i + 1}</Typography>
-                           </Avatar>
-                       </ListItemAvatar>
-                       <ListItemText
+                    }
+                    sx={{
+                        backgroundColor: result.uid === currentUser?.uid ? 'action.selected' : 'transparent',
+                        alignItems: 'flex-start', // Dikey hizalamayı başa al
+                        pt: 1.5, pb: 1.5 // Dikey padding'i artır
+                    }}
+                 >
+                     <ListItemAvatar sx={{mr: 1, mt: 0.5}}>
+                         <Avatar sx={{ bgcolor: i < 3 ? 'secondary.main' : 'primary.light', width: 36, height: 36 }}>
+                             <Typography variant="body1" sx={{color: 'white', fontWeight:'bold'}}>{result.rank || i + 1}</Typography>
+                         </Avatar>
+                     </ListItemAvatar>
+                     <ListItemText
                          primary={result.name}
-                         secondary={`${result.score} puan`}
-                         primaryTypographyProps={{ fontWeight: result.id === currentSocketId ? 'bold' : 500 }}
-                       />
-                   </ListItem>
-               </motion.div>
-               {/* Son eleman hariç araya ayırıcı koy */}
-               {i < gameResults.length - 1 && <Divider variant="inset" component="li" />}
+                         secondary={
+                             <Box component="span" sx={{ display: 'block', mt: 0.5 }}>
+                                 <Typography component="span" variant="body2" sx={{ fontWeight: 'bold' }}>
+                                     {result.finalScore} Puan
+                                 </Typography>
+                                 {result.xpEarned > 0 && (
+                                    <Chip
+                                        icon={<StarIcon fontSize="small" />}
+                                        label={`+${result.xpEarned} XP`}
+                                        size="small"
+                                        color="primary"
+                                        variant="outlined"
+                                        sx={{ ml: 1, height: '20px' }}
+                                     />
+                                 )}
+                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                                     {Object.entries(result.resourcesEarned || {}).map(([key, value]) => (
+                                         value > 0 && (
+                                         <Chip
+                                             key={key}
+                                             icon={<span style={{ fontSize: '1em' }}>{resourceInfo[key]?.icon || '?'}</span>}
+                                             label={`+${value}`}
+                                             size="small"
+                                             color={resourceInfo[key]?.color || 'default'}
+                                             variant="filled"
+                                             sx={{ height: '20px', '& .MuiChip-label': { fontSize: '0.7rem', px: '6px' }, '& .MuiChip-icon': { ml: '4px', mr: '-2px' } }}
+                                         />
+                                         )
+                                     ))}
+                                  </Box>
+                             </Box>
+                         }
+                         primaryTypographyProps={{ fontWeight: result.uid === currentUser?.uid ? 'bold' : 500, mb: 0.2 }}
+                     />
+                 </ListItem>
+                 {i < gameResults.length - 1 && <Divider variant="inset" component="li" />}
             </React.Fragment>
           ))}
         </List>
@@ -72,11 +97,11 @@ function ResultsScreen({ gameResults, waitingMessage, currentSocketId }) {
           </Typography>
           <Button
              variant="contained"
-             onClick={() => window.location.reload()} // Şimdilik basit yenileme
+             onClick={() => window.location.reload()}
              sx={{marginTop: 3}}
              size="large"
           >
-             Yeni Oyun İçin Yenile
+            Yeni Oyun İçin Yenile
           </Button>
       </motion.div>
     </Paper>
