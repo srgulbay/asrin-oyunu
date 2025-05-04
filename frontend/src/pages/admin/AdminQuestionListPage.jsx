@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // useNavigate import et
 import { Box, Typography, Paper, Button, CircularProgress, Alert } from '@mui/material';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import { getQuestions } from '../../services/adminApi';
 
 function AdminQuestionListPage() {
+  const navigate = useNavigate(); // useNavigate hook'unu kullan
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -63,7 +65,11 @@ function AdminQuestionListPage() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h4" component="h1"> Soru Yönetimi </Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => console.log("Add new question")}> Yeni Soru Ekle </Button>
+        {/* --- GÜNCELLEME: Butonun onClick olayı --- */}
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/admin/questions/new')}>
+          Yeni Soru Ekle
+        </Button>
+        {/* -------------------------------------- */}
       </Box>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       <Paper sx={{ height: 650, width: '100%' }}>

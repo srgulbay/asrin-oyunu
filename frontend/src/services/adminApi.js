@@ -42,3 +42,34 @@ export const getQuestions = async (page = 1, limit = 10) => {
         throw new Error(error.message || 'Sorular alınırken bir hata oluştu.');
     }
 };
+export const addQuestion = async (questionData) => {
+    console.log(">>> API CALL: addQuestion", questionData);
+    try {
+        const headers = await getAuthHeader();
+        const response = await fetch(`${API_BASE_URL}/questions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...headers,
+            },
+            body: JSON.stringify(questionData), // Gönderilecek soru verisi
+        });
+
+        if (!response.ok) {
+             const errorData = await response.json().catch(() => ({ error: 'Bilinmeyen sunucu hatası' }));
+             console.error(`API Hatası (${response.status}):`, errorData);
+             throw new Error(errorData.error || `HTTP Hata Kodu: ${response.status}`);
+        }
+
+        const newQuestion = await response.json();
+        console.log(">>> API RESPONSE: addQuestion:", newQuestion);
+        return newQuestion; // Backend'den dönen yeni soruyu döndür
+
+    } catch (error) {
+         console.error('addQuestion API çağrısı başarısız:', error);
+         throw new Error(error.message || 'Soru eklenirken bir hata oluştu.');
+    }
+};
+// ----------------------
+
+// TODO: updateQuestion, deleteQuestion etc.

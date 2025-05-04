@@ -38,6 +38,7 @@ import { auth } from './firebaseConfig';
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import useUserStore from './store/userStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import AdminQuestionFormPage from './pages/admin/AdminQuestionFormPage'; // YENİ IMPORT
 
 const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
@@ -305,8 +306,10 @@ function App() {
                 <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
                      <Route index element={<AdminDashboardPage />} />
                      <Route path="questions" element={<AdminQuestionListPage />} />
-                     {/* <Route path="users" element={<Typography>Kullanıcı Yönetimi</Typography>} /> */}
-                     {/* <Route path="settings" element={<Typography>Ayarlar</Typography>} /> */}
+                     {/* YENİ ROUTE */}
+                     <Route path="questions/new" element={<AdminQuestionFormPage />} />
+                     {/* -------------- */}
+                     {/* TODO: <Route path="questions/edit/:id" element={<AdminQuestionFormPage />} /> */}
                 </Route>
                  <Route path="/" element={
                      <Grid container spacing={2} alignItems="flex-start">
