@@ -3,11 +3,13 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
-const { Pool } = require('pg'); // PostgreSQL için
+const { Pool } = require('pg');
 const crypto = require('crypto');
 
-// --- YENİ: Firebase Admin SDK import ve başlatma ---
+// --- Firebase Admin SDK import ve başlatma ---
 const admin = require("firebase-admin");
+let dbAdmin; // Firestore instance'ını global yapalım
+let authAdmin; // Auth instance'ını global yapalım
 
 try {
     if (!process.env.FIREBASE_ADMIN_SDK_CONFIG) {
@@ -15,24 +17,23 @@ try {
     }
     const serviceAccount = JSON.parse(process.env.FIREBASE_ADMIN_SDK_CONFIG);
 
-    // Sadece bir kere başlatıldığından emin ol
     if (!admin.apps.length) {
          admin.initializeApp({
            credential: admin.credential.cert(serviceAccount)
-           // databaseURL: "https://<DATABASE_NAME>.firebaseio.com" // Eğer Realtime DB kullanılsaydı
          });
          console.log("Firebase Admin SDK başarıyla başlatıldı.");
     } else {
-         admin.app(); // Zaten başlatılmışsa mevcut app'i al
+         admin.app();
     }
+    dbAdmin = admin.firestore(); // Firestore instance'ı al
+    authAdmin = admin.auth(); // Auth instance'ı al
 
 } catch (error) {
     console.error("Firebase Admin SDK başlatılırken HATA:", error.message);
-    // Uygulamanın çökmesini engellemek için burada işlem yapabiliriz
-    // ancak Firestore güncellemeleri çalışmayacaktır.
+    dbAdmin = null; // Hata durumunda null yap
+    authAdmin = null;
 }
-const dbAdmin = admin.firestore(); // Admin SDK Firestore instance'ı
-const FieldValue = admin.firestore.FieldValue; // Increment için
+const FieldValue = admin.firestore.FieldValue;
 // -----------------------------------------------
 
 
@@ -65,8 +66,39 @@ const io = new Server(server, {
        }
     },
     methods: ["GET", "POST"]
+  },
+  pingTimeout: 60000, // WebSocket stabilitesi için
+  pingInterval: 25000 // WebSocket stabilitesi için
+});
+
+// --- YENİ: Socket.IO Authentication Middleware ---
+io.use(async (socket, next) => {
+  // Admin SDK başlatılamadıysa kimseyi bağlama (güvenlik)
+  if (!authAdmin) {
+       console.error("Auth Middleware: Firebase Admin SDK başlatılmadığı için bağlantı reddedildi.");
+       return next(new Error('Server configuration error'));
+  }
+
+  const token = socket.handshake.auth?.token;
+  console.log(`[Auth Middleware] Gelen bağlantı ID: ${socket.id}. Token var mı: ${!!token}`);
+
+  if (!token) {
+    console.warn(`[Auth Middleware] ${socket.id} için token yok. Bağlantı reddedildi.`);
+    return next(new Error('Authentication error: No token provided'));
+  }
+
+  try {
+    console.log(`[Auth Middleware] Token doğrulanıyor: ${token.substring(0, 10)}...`);
+    const decodedToken = await authAdmin.verifyIdToken(token);
+    socket.userId = decodedToken.uid; // <-- UID'yi socket nesnesine ekle
+    console.log(`[Auth Middleware] Token doğrulandı. UID: ${socket.userId} socket'e eklendi. Bağlantıya izin veriliyor.`);
+    next(); // Token geçerli, bağlantıya izin ver
+  } catch (err) {
+    console.error(`[Auth Middleware] Token doğrulama hatası (${socket.id}):`, err.message);
+    next(new Error('Authentication error: Invalid token')); // Token geçersiz, bağlantıyı reddet
   }
 });
+// -----------------------------------------------
 
 const PORT = process.env.PORT || 3000;
 
@@ -87,22 +119,15 @@ const BASE_SCORE = 1000;
 const MAX_TIME_BONUS = 500;
 const COMBO_BONUS_MULTIPLIER = 50;
 const MAX_COMBO_BONUS = 300;
-
 const GRADE_DIFFICULTY_FACTOR = 0.10;
 const MAX_DIFFICULTY_BONUS_MULTIPLIER = 1.5;
 const MIN_DIFFICULTY_PENALTY_MULTIPLIER = 0.5;
 const SIGNIFICANT_GRADE_DIFFERENCE = 3;
-
 const XP_PER_CORRECT_ANSWER = 10;
 const BRANCH_RESOURCE_MAP = {
-    'Matematik': 'zekaKristali',
-    'Türkçe': 'bilgelik',
-    'Fen Bilimleri': 'enerji',
-    'Sosyal Bilgiler': 'kultur',
-    'Tarih': 'kultur',
-    'Coğrafya': 'kultur',
-    'İngilizce': 'bilgelik',
-    'Teknoloji': 'zekaKristali',
+    'Matematik': 'zekaKristali', 'Türkçe': 'bilgelik', 'Fen Bilimleri': 'enerji',
+    'Sosyal Bilgiler': 'kultur', 'Tarih': 'kultur', 'Coğrafya': 'kultur',
+    'İngilizce': 'bilgelik', 'Teknoloji': 'zekaKristali',
 };
 const DEFAULT_RESOURCES = { bilgelik: 0, zekaKristali: 0, enerji: 0, kultur: 0 };
 
@@ -116,14 +141,11 @@ function getNumericGrade(gradeString) {
 function getSortedPlayerList() {
     return Array.from(tournamentPlayers.entries())
         .map(([id, data]) => ({
-             id,
-             name: data.name,
-             score: data.score,
-             isReady: data.isReady,
-             grade: data.grade,
-             uid: data.uid, // UID'yi de ekleyebiliriz (debug için)
-             xpEarned: data.currentTournamentXP,
-             resourcesEarned: data.currentTournamentResources
+             id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade,
+             // Sonuçlar için gerekli alanlar da eklenebilir veya ayrı hesaplanabilir
+             // uid: data.uid, // Bu artık endTournament içinde eklenecek
+             // xpEarned: data.currentTournamentXP,
+             // resourcesEarned: data.currentTournamentResources
         }))
         .sort((a, b) => b.score - a.score);
 }
@@ -131,7 +153,7 @@ function getSortedPlayerList() {
 function broadcastTournamentState() {
     io.to(TOURNAMENT_ROOM).emit('tournament_state_update', {
         gameState: currentGameState,
-        players: getSortedPlayerList().map(p => ({id: p.id, name: p.name, score: p.score, isReady: p.isReady, grade: p.grade})), // Sadece temel bilgileri gönder
+        players: getSortedPlayerList(), // Sadece temel bilgileri gönderir
         currentQuestionIndex: currentQuestionIndex,
         totalQuestions: gameQuestions.length
     });
@@ -170,7 +192,6 @@ function generateQuestionSummaryAnnouncements(qIndex) {
     let comboPlayerName = null; tournamentPlayers.forEach((player) => { if (player.combo > maxCombo) { maxCombo = player.combo; comboPlayerName = player.name; } });
     if (maxCombo >= 3 && maxCombo % 2 !== 0) { sendAnnouncerMessage(`${comboPlayerName} ${maxCombo} maçlık galibiyet serisiyle coştu! 🔥`, "combo"); }
 
-    // Liderlik durumu mesajı için skora göre sıralanmış liste alınmalı (getSortedPlayerList zaten yapıyor)
     const sortedPlayersForLead = getSortedPlayerList();
     if (sortedPlayersForLead.length > 0) { if ( (qIndex + 1) % 3 === 0 || qIndex === gameQuestions.length -1 ) { sendAnnouncerMessage(`Şu anki lider ${sortedPlayersForLead[0].name} (${sortedPlayersForLead[0].score}p)! 👑`, "lead"); } }
 }
@@ -196,6 +217,7 @@ async function startTournament() {
             gameQuestions = sampleQuestions;
         } else {
             try {
+                // TODO: Oyuncu sınıflarına göre filtreleme ekle
                 const result = await pool.query('SELECT id, question_text, options, correct_answer, grade, branch FROM questions ORDER BY RANDOM() LIMIT 5');
                 if (result.rows.length === 0) {
                     console.warn("UYARI: Veritabanında uygun soru bulunamadı, örnek sorular kullanılıyor.");
@@ -207,17 +229,14 @@ async function startTournament() {
             } catch (dbError) {
                  console.error("Veritabanından soru çekme hatası:", dbError);
                  sendAnnouncerMessage("Sorular yüklenirken bir hata oluştu. Lütfen tekrar deneyin.", "error");
-                 gameQuestions = sampleQuestions; // Hata durumunda örnek sorulara dön
+                 gameQuestions = sampleQuestions;
             }
         }
 
         currentQuestionIndex = -1;
         tournamentPlayers.forEach(player => {
-             player.score = 0;
-             player.combo = 0;
-             player.isReady = false;
-             player.currentTournamentXP = 0;
-             player.currentTournamentResources = { ...DEFAULT_RESOURCES };
+             player.score = 0; player.combo = 0; player.isReady = false;
+             player.currentTournamentXP = 0; player.currentTournamentResources = { ...DEFAULT_RESOURCES };
         });
         broadcastTournamentState();
         setTimeout(sendNextQuestion, 3000);
@@ -239,7 +258,7 @@ function sendNextQuestion() {
     currentQuestionIndex++;
 
     if (currentQuestionIndex >= gameQuestions.length) {
-        endTournament(); // Async olmasına gerek yok gibi, içindeki DB işlemleri async
+        endTournament();
         return;
     }
 
@@ -247,7 +266,7 @@ function sendNextQuestion() {
     if (!question || !question.question_text || !question.options || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined' || typeof question.branch === 'undefined') {
         console.error("HATA: Geçersiz soru formatı veya eksik sınıf/branş bilgisi!", question);
         sendAnnouncerMessage("Sıradaki soru yüklenirken hata oluştu!", "error");
-        endTournament(); // Async olmasına gerek yok gibi
+        endTournament();
         return;
     }
 
@@ -268,7 +287,6 @@ function sendNextQuestion() {
     }, QUESTION_TIME_LIMIT * 1000 + 1000);
 }
 
-// endTournament artık async, içindeki Promise.all nedeniyle
 async function endTournament() {
     clearTimeout(questionTimer);
     if(currentQuestionIndex >= 0 && gameQuestions.length > 0 && currentQuestionIndex < gameQuestions.length) {
@@ -278,15 +296,13 @@ async function endTournament() {
     currentGameState = GAME_MODES.GAME_OVER;
 
     const finalPlayerData = Array.from(tournamentPlayers.entries());
-
-    // Sıralamayı yapmadan önce UID kontrolü yapalım ve sıralayalım
     const sortedFinalPlayerData = finalPlayerData
-        .filter(([id, data]) => data.uid) // UID olmayanları filtrele (güvenlik önlemi)
-        .sort(([, dataA], [, dataB]) => dataB.score - dataA.score); // Skora göre sırala
+        .filter(([id, data]) => data.uid)
+        .sort(([, dataA], [, dataB]) => dataB.score - dataA.score);
 
     const detailedResults = sortedFinalPlayerData.map(([id, data], index) => ({
-            id: id, // socket ID
-            uid: data.uid, // Firebase UID
+            id: id,
+            uid: data.uid, // UID artık burada
             name: data.name,
             rank: index + 1,
             finalScore: data.score,
@@ -299,37 +315,24 @@ async function endTournament() {
 
     io.to(TOURNAMENT_ROOM).emit('game_over', { results: detailedResults });
 
-    // Firestore güncellemesi (Admin SDK ile)
-    if (admin.apps.length > 0 && dbAdmin) { // Admin SDK başlatıldıysa ve dbAdmin varsa
+    if (admin.apps.length > 0 && dbAdmin) {
         const updatePromises = detailedResults.map(playerResult => {
             const userDocRefAdmin = dbAdmin.collection("users").doc(playerResult.uid);
             const updates = {};
-
-            // Sadece kazanılan XP > 0 ise güncelle
-            if (playerResult.xpEarned > 0) {
-                updates.xp = FieldValue.increment(playerResult.xpEarned);
-            }
-
-            // Sadece kazanılan kaynaklar > 0 ise güncelle
+            if (playerResult.xpEarned > 0) { updates.xp = FieldValue.increment(playerResult.xpEarned); }
             for (const [resource, amount] of Object.entries(playerResult.resourcesEarned)) {
-                if (amount > 0) {
-                    updates[`resources.${resource}`] = FieldValue.increment(amount);
-                }
+                if (amount > 0) { updates[`resources.${resource}`] = FieldValue.increment(amount); }
             }
-
-            // Eğer güncellenecek bir şey varsa işlemi yap
             if (Object.keys(updates).length > 0) {
                  console.log(`Firestore güncelleniyor: User ${playerResult.uid}`, updates);
                  return userDocRefAdmin.update(updates).catch(err => {
                     console.error(`Firestore güncelleme hatası (UID: ${playerResult.uid}):`, err);
-                    // Hata durumunda ne yapılacağına karar verilebilir (örn: loglama, tekrar deneme mekanizması?)
                  });
             } else {
                  console.log(`Kullanıcı ${playerResult.uid} için güncelleme gerektirecek kazanç yok.`);
-                 return Promise.resolve(); // Güncelleme yoksa boş promise döndür
+                 return Promise.resolve();
             }
         });
-
         try {
             await Promise.all(updatePromises);
             console.log("Tüm oyuncu verileri Firestore'da güncellendi (ya da güncelleme gerekmedi).");
@@ -352,19 +355,21 @@ async function endTournament() {
 
 
 io.on('connection', (socket) => {
-  console.log(`Bağlandı: ${socket.id}, Durum: ${currentGameState}`);
-  socket.emit('initial_state', { gameState: currentGameState, players: getSortedPlayerList().map(p => ({id: p.id, name: p.name, score: p.score, isReady: p.isReady, grade: p.grade})) }); // Sadece temel bilgiler gönderilir
+  // Middleware tarafından userId eklendiği için burada erişilebilir olmalı
+  console.log(`Bağlandı: ${socket.id}, Kullanıcı ID (Auth): ${socket.userId}, Durum: ${currentGameState}`);
+
+  // Bağlantı başarılı olduğu anda (middleware'den geçtiyse) initial state gönder
+  socket.emit('initial_state', { gameState: currentGameState, players: getSortedPlayerList() });
 
   socket.on('join_tournament', (data) => {
     const playerName = data?.name?.trim() || `Oyuncu_${socket.id.substring(0, 4)}`;
     const playerGrade = data?.grade;
-    const playerUid = data?.uid;
+    // --- UID'yi data'dan değil, socket nesnesinden al ---
+    const playerUid = socket.userId;
+    // --------------------------------------------------
 
-    if (!playerUid) {
-        console.error(`Katılma isteği reddedildi: Oyuncu ${playerName} için UID gelmedi.`);
-        socket.emit('error_message', { message: 'Kimlik bilgileri eksik, katılamazsınız.' });
-        return;
-    }
+    // Middleware zaten kimlik doğrulaması yaptığı için burada tekrar UID kontrolü GEREKSİZ
+    // if (!playerUid) { ... } bloğu kaldırıldı.
 
     if (currentGameState === GAME_MODES.TOURNAMENT_RUNNING || currentGameState === GAME_MODES.GAME_OVER ) {
         socket.emit('error_message', { message: 'Devam eden oyun var veya yeni bitti.' });
@@ -372,7 +377,7 @@ io.on('connection', (socket) => {
     }
     if (tournamentPlayers.has(socket.id)) {
         console.log(`${playerName} zaten listede.`);
-        socket.join(TOURNAMENT_ROOM);
+        socket.join(TOURNAMENT_ROOM); // Odada olduğundan emin ol
         return;
     }
 
@@ -385,7 +390,7 @@ io.on('connection', (socket) => {
         combo: 0,
         isReady: false,
         grade: playerGrade,
-        uid: playerUid,
+        uid: playerUid, // Doğrulanmış UID'yi sakla
         currentTournamentXP: 0,
         currentTournamentResources: { ...DEFAULT_RESOURCES },
     });
@@ -394,7 +399,7 @@ io.on('connection', (socket) => {
         currentGameState = GAME_MODES.WAITING_TOURNAMENT;
     }
     sendAnnouncerMessage(`${playerName} yarışmaya katıldı! Aramıza hoş geldin! 👋`, "join");
-    broadcastTournamentState(); // Katılan oyuncuyu listeye ekle
+    broadcastTournamentState();
 
     if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && tournamentPlayers.size >= MIN_PLAYERS_TO_INFORM) {
         io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Oyuncular bekleniyor. Hazır olduğunuzda belirtin.' });
@@ -402,18 +407,17 @@ io.on('connection', (socket) => {
   });
 
   socket.on('player_ready', () => {
+    // Middleware tarafından kimlik doğrulaması yapıldığı için userId'nin var olduğunu varsayabiliriz
     if (currentGameState !== GAME_MODES.WAITING_TOURNAMENT || !tournamentPlayers.has(socket.id)) return;
     const player = tournamentPlayers.get(socket.id);
     if (!player.isReady) {
         player.isReady = true;
         console.log(`Oyuncu ${player.name} (${socket.id}) hazır.`);
         sendAnnouncerMessage(`${player.name} hazır! 👍`, "info");
-        broadcastTournamentState(); // Hazır durumunu gönder
+        broadcastTournamentState();
         const allPlayersArray = Array.from(tournamentPlayers.values());
-        // Hazır oyuncu sayısı kontrolü (veya minimum oyuncu sayısı)
         const readyPlayerCount = allPlayersArray.filter(p => p.isReady).length;
         const totalPlayerCount = allPlayersArray.length;
-        // Örnek: En az 1 oyuncu varsa ve hepsi hazırsa başlat
         if (totalPlayerCount >= 1 && readyPlayerCount === totalPlayerCount) {
              console.log("Tüm oyuncular hazır, turnuva başlatılıyor...");
              sendAnnouncerMessage("Herkes hazır görünüyor! Geri sayım başlasın!", "info");
@@ -426,6 +430,7 @@ io.on('connection', (socket) => {
 
   socket.on('submit_answer', (data) => {
     const answerTime = Date.now();
+    // Middleware tarafından kimlik doğrulaması yapıldığı için userId'nin var olduğunu varsayabiliriz
     if (currentGameState !== GAME_MODES.TOURNAMENT_RUNNING || !tournamentPlayers.has(socket.id)) return;
     if (typeof data.questionIndex !== 'number' || data.questionIndex !== currentQuestionIndex) { return; }
 
@@ -441,13 +446,9 @@ io.on('connection', (socket) => {
     const correctAnswer = question.correct_answer;
     const timeDiffMs = answerTime - questionStartTime;
 
-    let pointsAwarded = 0;
-    let correct = false;
-    let comboBroken = false;
-    let currentCombo = player.combo || 0;
-    let adjustedBaseScore = BASE_SCORE;
-    let gradeDifference = 0;
-    let difficultyBonusPoints = 0;
+    let pointsAwarded = 0; let correct = false; let comboBroken = false;
+    let currentCombo = player.combo || 0; let adjustedBaseScore = BASE_SCORE;
+    let gradeDifference = 0; let difficultyBonusPoints = 0;
 
     if (data.answer === correctAnswer) {
         correct = true;
@@ -497,7 +498,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', (reason) => {
-      console.log(`[Disconnect] ID: ${socket.id}, Sebep: ${reason}, Mevcut Durum: ${currentGameState}`);
+      console.log(`[Disconnect] ID: ${socket.id}, Kullanıcı ID: ${socket.userId || 'yok'}, Sebep: ${reason}, Mevcut Durum: ${currentGameState}`);
       if (tournamentPlayers.has(socket.id)) {
           const player = tournamentPlayers.get(socket.id);
           const wasReady = player.isReady;
@@ -528,7 +529,8 @@ io.on('connection', (socket) => {
           console.log(`[Disconnect] Ayrılan socket ${socket.id} turnuva listesinde değildi.`);
       }
     });
-});
+}); // io.on('connection') sonu
+
 
 app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/plain'); res.status(200).send(`Asrin Oyunu Backend Çalışıyor! Durum: ${currentGameState}, Oyuncular: ${tournamentPlayers.size}`); });
 server.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda dinleniyor...`); if (!process.env.DATABASE_URL) console.warn("UYARI: DATABASE_URL çevre değişkeni bulunamadı."); });
