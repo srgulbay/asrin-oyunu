@@ -1,45 +1,61 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { doc, getDoc } from "firebase/firestore";
+import { db } from '../firebaseConfig';
 
-// Kullanıcı state'ini yönetecek Zustand store'unu oluştur
 const useUserStore = create(
-  // persist middleware'i state'i localStorage'a kaydeder/yükler
   persist(
-    (set, get) => ({
-      // Başlangıç State'i
-      user: null,          // Giriş yapmış kullanıcının bilgileri (Firebase Auth'dan gelecek)
-      isLoggedIn: false,   // Kullanıcı giriş yapmış mı?
-      isLoading: true,     // Başlangıçta Auth durumu kontrol edilirken true olacak
+    (set) => ({
+      user: null,
+      isLoggedIn: false,
+      isLoading: true,
 
-      // State'i güncelleyen Actions (Fonksiyonlar)
-      setUser: (firebaseUser) => {
-        // Firebase'den gelen kullanıcı bilgisini veya null'ı ayarla
-        const userData = firebaseUser ? {
+      setUser: async (firebaseUser) => {
+        if (firebaseUser) {
+          const authData = {
             uid: firebaseUser.uid,
             email: firebaseUser.email,
             displayName: firebaseUser.displayName,
-            // İleride Firestore'dan ek bilgiler de eklenebilir (sınıf, xp vb.)
-        } : null;
-        console.log("Zustand setUser:", userData); // Debug
-        set({ user: userData, isLoggedIn: !!userData, isLoading: false });
+          };
+
+          try {
+            const userDocRef = doc(db, "users", firebaseUser.uid);
+            const docSnap = await getDoc(userDocRef);
+
+            if (docSnap.exists()) {
+              const firestoreData = docSnap.data();
+              const userData = {
+                ...authData,
+                grade: firestoreData.grade || null,
+                xp: firestoreData.xp || 0,
+                level: firestoreData.level || 1,
+                resources: firestoreData.resources || { bilgelik: 0, zekaKristali: 0, enerji: 0, kultur: 0 },
+              };
+              set({ user: userData, isLoggedIn: true, isLoading: false });
+            } else {
+              console.warn(`Firestore'da ${firebaseUser.uid} için doküman bulunamadı.`);
+              set({ user: authData, isLoggedIn: true, isLoading: false });
+            }
+          } catch (error) {
+            console.error("Firestore'dan kullanıcı verisi alınırken hata:", error);
+            set({ user: authData, isLoggedIn: true, isLoading: false });
+          }
+        } else {
+          set({ user: null, isLoggedIn: false, isLoading: false });
+        }
       },
 
-      // Kullanıcı çıkış yaptığında state'i temizle
       clearUser: () => {
-        console.log("Zustand clearUser çağrıldı.");
         set({ user: null, isLoggedIn: false, isLoading: false });
       },
 
-      // Yükleniyor durumunu ayarla (opsiyonel)
       setLoading: (loading) => {
         set({ isLoading: loading });
       },
-
     }),
     {
-      name: 'user-auth-storage', // localStorage'daki anahtar adı
-      storage: createJSONStorage(() => localStorage), // Depolama alanı (localStorage)
-      // Sadece user ve isLoggedIn bilgilerini kalıcı yap, isLoading'i yapma
+      name: 'user-auth-storage',
+      storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ user: state.user, isLoggedIn: state.isLoggedIn }),
     }
   )
