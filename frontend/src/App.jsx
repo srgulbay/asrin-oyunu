@@ -35,7 +35,7 @@ import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminQuestionListPage from './pages/admin/AdminQuestionListPage';
 import AdminQuestionFormPage from './pages/admin/AdminQuestionFormPage';
 import AdminTournamentListPage from './pages/admin/AdminTournamentListPage';
-import AdminTournamentFormPage from './pages/admin/AdminTournamentFormPage'; // Bunu da import edelim (sonraki adım için)
+import AdminTournamentFormPage from './pages/admin/AdminTournamentFormPage';
 import createAppTheme from './theme';
 
 import { auth } from './firebaseConfig';
@@ -143,19 +143,8 @@ function App() {
   }, [currentQuestion, gameState, logToScreen]);
 
   const handleLogout = useCallback(async () => {
-      if (socketRef.current) {
-          logToScreen("Logout: Socket bağlantısı kesiliyor.");
-          socketRef.current.disconnect();
-          setSocket(null);
-          setIsConnected(false);
-       }
-      try {
-          await signOut(auth);
-          logToScreen("Çıkış yapıldı (Firebase).");
-      } catch (error) {
-          logToScreen("Çıkış hatası:", error);
-          alert("Çıkış yapılırken bir hata oluştu.");
-      }
+      if (socketRef.current) { logToScreen("Logout: Socket bağlantısı kesiliyor."); socketRef.current.disconnect(); setSocket(null); setIsConnected(false); }
+      try { await signOut(auth); logToScreen("Çıkış yapıldı (Firebase)."); } catch (error) { logToScreen("Çıkış hatası:", error); alert("Çıkış yapılırken bir hata oluştu."); }
    }, [logToScreen]);
 
   useEffect(() => {
@@ -180,24 +169,16 @@ function App() {
         if (socketInstance && socketInstance !== socketRef.current) {
              logToScreen("Cleanup: Bu effect'te oluşturulan yeni socket kapatılıyor.");
              socketInstance.disconnect();
-         } else if (!isLoggedIn && socketRef.current) {
-             // Bu durum zaten yukarıda ele alındı, tekrar disconnect'e gerek yok ama ref'i temizlemek iyi olabilir
-             // setSocket(null);
-             // setIsConnected(false);
          }
     };
-  }, [isLoggedIn, isLoading, setupSocketListeners, logToScreen]);
+  }, [isLoggedIn, isLoading, setupSocketListeners, logToScreen, handleLogout]); // handleLogout eklendi (kullanılmasa da)
 
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
   const handleJoinTournament = useCallback(async () => {
     logToScreen('handleJoinTournament ÇAĞRILDI!');
     const currentUser = auth.currentUser;
-    if (!currentUser) {
-        logToScreen('Katılma başarısız: Firebase Auth kullanıcısı bulunamadı!');
-        alert('Giriş yapılmamış veya kullanıcı bilgisi alınamadı. Lütfen tekrar giriş yapın.');
-        return;
-    }
+    if (!currentUser) { logToScreen('Katılma başarısız: Firebase Auth kullanıcısı bulunamadı!'); alert('Giriş yapılmamış veya kullanıcı bilgisi alınamadı. Lütfen tekrar giriş yapın.'); return; }
     const userUid = currentUser.uid;
     const joinName = currentUser.displayName || currentUser.email || `Oyuncu_${userUid.substring(0,4)}`;
     const userGrade = user?.grade;
@@ -245,9 +226,7 @@ function App() {
        const joinButtonDisabled = isAuthLoading || isSocketDisconnected || isUserUidMissing;
        const joinButtonText = isAuthLoading ? 'Yükleniyor...' : (isSocketDisconnected ? 'Bağlanıyor...' : (isUserUidMissing ? 'Kullanıcı Bilgisi Bekleniyor...' : 'Turnuvaya Katıl'));
 
-       if (isAuthLoading || (isSocketDisconnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) {
-            return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isAuthLoading ? "Kimlik doğrulanıyor..." : connectionMessage}</Typography></Box>;
-       }
+       if (isAuthLoading || (isSocketDisconnected && isLoggedIn && gameState !== GAME_STATES.IDLE)) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 5, flexDirection:'column' }}><CircularProgress /><Typography sx={{mt: 2}} color="text.secondary">{isAuthLoading ? "Kimlik doğrulanıyor..." : connectionMessage}</Typography></Box>; }
 
        if (gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
             if (!isLoggedIn) { return ( <Paper elevation={3} sx={{p:3, textAlign:'center'}}> <Typography variant="h5">Oynamak için Giriş Yapın</Typography> <Button component={RouterLink} to="/login" variant="contained" sx={{mt: 2}}>Giriş Yap</Button> <Button component={RouterLink} to="/register" variant="outlined" sx={{mt: 2, ml: 1}}>Kayıt Ol</Button> </Paper> ); }
