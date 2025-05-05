@@ -1,12 +1,12 @@
 import { auth } from '../firebaseConfig';
 
-const API_BASE_URL = '/api/admin';
+// --- GÜNCELLEME: Backend URL'sini .env'den al ---
+const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000') + '/api/admin';
+// ---------------------------------------------
 
 const getAuthHeader = async () => {
     const user = auth.currentUser;
-    if (!user) {
-        throw new Error('Kullanıcı girişi yapılmamış.');
-    }
+    if (!user) { throw new Error('Kullanıcı girişi yapılmamış.'); }
     try {
         const token = await user.getIdToken();
         return { Authorization: `Bearer ${token}` };
@@ -17,23 +17,18 @@ const getAuthHeader = async () => {
 };
 
 export const getQuestions = async (page = 1, limit = 10) => {
-    console.log(`>>> API CALL: getQuestions (page: ${page}, limit: ${limit})`);
+    console.log(`>>> API CALL: getQuestions (page: ${page}, limit: ${limit}) URL: ${API_BASE_URL}/questions`); // URL'yi logla
     try {
         const headers = await getAuthHeader();
         const response = await fetch(`${API_BASE_URL}/questions?page=${page}&limit=${limit}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                ...headers,
-            },
+            headers: { 'Content-Type': 'application/json', ...headers, },
         });
-
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Bilinmeyen sunucu hatası' }));
             console.error(`API Hatası (${response.status}):`, errorData);
             throw new Error(errorData.error || `HTTP Hata Kodu: ${response.status}`);
         }
-
         const data = await response.json();
         console.log(">>> API RESPONSE: getQuestions:", data);
         return data;
@@ -42,34 +37,26 @@ export const getQuestions = async (page = 1, limit = 10) => {
         throw new Error(error.message || 'Sorular alınırken bir hata oluştu.');
     }
 };
+
 export const addQuestion = async (questionData) => {
     console.log(">>> API CALL: addQuestion", questionData);
     try {
         const headers = await getAuthHeader();
         const response = await fetch(`${API_BASE_URL}/questions`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...headers,
-            },
-            body: JSON.stringify(questionData), // Gönderilecek soru verisi
+            headers: { 'Content-Type': 'application/json', ...headers, },
+            body: JSON.stringify(questionData),
         });
-
         if (!response.ok) {
              const errorData = await response.json().catch(() => ({ error: 'Bilinmeyen sunucu hatası' }));
              console.error(`API Hatası (${response.status}):`, errorData);
              throw new Error(errorData.error || `HTTP Hata Kodu: ${response.status}`);
         }
-
         const newQuestion = await response.json();
         console.log(">>> API RESPONSE: addQuestion:", newQuestion);
-        return newQuestion; // Backend'den dönen yeni soruyu döndür
-
+        return newQuestion;
     } catch (error) {
          console.error('addQuestion API çağrısı başarısız:', error);
          throw new Error(error.message || 'Soru eklenirken bir hata oluştu.');
     }
 };
-// ----------------------
-
-// TODO: updateQuestion, deleteQuestion etc.
