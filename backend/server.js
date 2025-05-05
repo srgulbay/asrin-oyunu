@@ -5,8 +5,9 @@ const http = require('http');
 const { Server } = require("socket.io");
 const { Pool } = require('pg');
 const crypto = require('crypto');
-
+const cors = require('cors');
 const admin = require("firebase-admin");
+
 let dbAdmin;
 let authAdmin;
 
@@ -15,18 +16,14 @@ try {
         throw new Error("FIREBASE_ADMIN_SDK_CONFIG ortam değişkeni bulunamadı!");
     }
     const serviceAccount = JSON.parse(process.env.FIREBASE_ADMIN_SDK_CONFIG);
-
     if (!admin.apps.length) {
-         admin.initializeApp({
-           credential: admin.credential.cert(serviceAccount)
-         });
+         admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
          console.log("Firebase Admin SDK başarıyla başlatıldı.");
     } else {
          admin.app();
     }
     dbAdmin = admin.firestore();
     authAdmin = admin.auth();
-
 } catch (error) {
     console.error("Firebase Admin SDK başlatılırken HATA:", error.message);
     dbAdmin = null;
@@ -35,7 +32,13 @@ try {
 const FieldValue = admin.firestore.FieldValue;
 
 const app = express();
-app.use(express.json()); // JSON body parser
+app.use(express.json());
+
+const corsOptions = {
+  origin: process.env.FRONTEND_URL,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 
 const server = http.createServer(app);
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
@@ -52,18 +55,11 @@ if (pool) {
 } else { console.warn("UYARI: DATABASE_URL yok, DB bağlantısı kurulmadı."); }
 
 const allowedOrigins = [ process.env.FRONTEND_URL ].filter(Boolean);
-console.log("İzin verilen kaynaklar (CORS):", allowedOrigins);
+console.log("İzin verilen kaynaklar (CORS - Socket.IO için):", allowedOrigins);
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-           callback(null, true);
-      } else {
-           console.warn(`CORS Engeli: ${origin} kaynağına izin verilmedi.`);
-           callback(new Error('CORS İzin Vermiyor'), false);
-       }
-    },
+    origin: process.env.FRONTEND_URL,
     methods: ["GET", "POST"]
   },
   pingTimeout: 60000,
@@ -71,7 +67,6 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-
 const GAME_MODES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 let currentGameState = GAME_MODES.IDLE;
 let tournamentPlayers = new Map();
@@ -525,7 +520,7 @@ adminRouter.post('/questions', checkAdminAuth, async (req, res) => {
     if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
     try {
         const query = `INSERT INTO questions (question_text, options, correct_answer, grade, branch) VALUES ($1, $2, $3, $4, $5) RETURNING *;`;
-        const optionsValue = options; // TEXT[] veya JSONB için uygun format gerekebilir
+        const optionsValue = options;
         const result = await pool.query(query, [ question_text, optionsValue, correct_answer, grade, branch ]);
         console.log("[Admin API] Yeni soru eklendi:", result.rows[0]);
         res.status(201).send(result.rows[0]);
