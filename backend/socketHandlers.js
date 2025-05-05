@@ -9,19 +9,16 @@ const {
     SIGNIFICANT_GRADE_DIFFERENCE, XP_PER_CORRECT_ANSWER, BRANCH_RESOURCE_MAP, DEFAULT_RESOURCES
 } = require('./config/constants');
 
-// Oyun state'i ve oyuncu verilerini bu modül içinde tutalım
 let currentGameState = GAME_MODES.IDLE;
-let tournamentPlayers = new Map(); // socket.id -> player data
+let tournamentPlayers = new Map();
 let gameQuestions = [];
 let currentQuestionIndex = -1;
 let questionTimer = null;
 let questionStartTime = 0;
-let currentQuestionAnswers = new Map(); // socket.id -> { answer, timeMs, correct }
+let currentQuestionAnswers = new Map();
 
-// Socket.IO instance'ını dışarıdan alacak fonksiyon
-function setupSocketHandlers(io) {
+function setupSocketHandlers(ioInstance) { // Parametre adı ioInstance olarak değiştirildi
 
-    // Yardımcı fonksiyonlar (artık io'ya doğrudan erişebilirler)
     function getSortedPlayerList() {
         return Array.from(tournamentPlayers.entries())
             .map(([id, data]) => ({ id, name: data.name, score: data.score, isReady: data.isReady, grade: data.grade, uid: data.uid }))
@@ -30,7 +27,7 @@ function setupSocketHandlers(io) {
 
     function broadcastTournamentState() {
         const playersForBroadcast = getSortedPlayerList().map(p => ({id: p.id, name: p.name, score: p.score, isReady: p.isReady, grade: p.grade}));
-        io.to(TOURNAMENT_ROOM).emit('tournament_state_update', {
+        ioInstance.to(TOURNAMENT_ROOM).emit('tournament_state_update', { // io yerine ioInstance
             gameState: currentGameState, players: playersForBroadcast,
             currentQuestionIndex: currentQuestionIndex, totalQuestions: gameQuestions.length
         });
@@ -40,16 +37,16 @@ function setupSocketHandlers(io) {
         const formattedMessage = String(message);
         const messageId = crypto.randomUUID();
         console.log(`[Announcer][${messageId}] ${formattedMessage}`);
-        io.to(TOURNAMENT_ROOM).emit('announcer_message', { id: messageId, text: formattedMessage, type: type, timestamp: Date.now() });
+        ioInstance.to(TOURNAMENT_ROOM).emit('announcer_message', { id: messageId, text: formattedMessage, type: type, timestamp: Date.now() }); // io yerine ioInstance
     }
 
     function generateQuestionSummaryAnnouncements(qIndex) {
         if (qIndex < 0 || qIndex >= gameQuestions.length) return;
         if (currentQuestionAnswers.size === 0 && currentGameState === GAME_MODES.TOURNAMENT_RUNNING) { sendAnnouncerMessage(`Soru ${qIndex + 1} için kimse cevap vermedi! 🤷`, "warning"); return; }
         if (currentQuestionAnswers.size === 0) return;
-        let correctCount = 0; let fastestTimeMs = Infinity; let fastestPlayerId = null;
+        let correctCount = 0; let fastestTimeMs = Infinity; let fastestPlayerId = null; let submittedAnswerCount = currentQuestionAnswers.size;
         currentQuestionAnswers.forEach((answerData, playerId) => { if (answerData.correct) { correctCount++; if (answerData.timeMs < fastestTimeMs) { fastestTimeMs = answerData.timeMs; fastestPlayerId = playerId; } } });
-        const submittedAnswerCount = currentQuestionAnswers.size; const totalPlayersInRoom = tournamentPlayers.size;
+        const totalPlayersInRoom = tournamentPlayers.size;
         if (correctCount === submittedAnswerCount && submittedAnswerCount === totalPlayersInRoom && totalPlayersInRoom > 1) { sendAnnouncerMessage(`Mükemmel tur! Herkes doğru bildi! 🏆 (${correctCount}/${totalPlayersInRoom})`, "all_correct"); }
         else if (correctCount === 0 && submittedAnswerCount > 0) { sendAnnouncerMessage(`Bu soruda doğru cevap veren olmadı! 🤔 (${correctCount}/${submittedAnswerCount} cevap)`, "none_correct"); }
         else if (correctCount > 0 && correctCount < submittedAnswerCount) { sendAnnouncerMessage(`${correctCount} oyuncu doğru cevabı buldu.`, "info"); }
@@ -112,10 +109,10 @@ function setupSocketHandlers(io) {
         const questionAnnounceText = `Soru ${currentQuestionIndex + 1}/${gameQuestions.length}: ${question.question_text}`;
         setTimeout(() => {
             sendAnnouncerMessage(questionAnnounceText, "question"); console.log(`Soru ${currentQuestionIndex + 1} (Sınıf: ${question.grade}) gönderiliyor...`);
-            questionStartTime = Date.now(); io.to(TOURNAMENT_ROOM).emit('new_question', questionData);
+            questionStartTime = Date.now(); ioInstance.to(TOURNAMENT_ROOM).emit('new_question', questionData); // io yerine ioInstance
         }, 1000);
         questionTimer = setTimeout(() => {
-            console.log(`Soru ${currentQuestionIndex + 1} için süre doldu.`); io.to(TOURNAMENT_ROOM).emit('question_timeout', { questionIndex: currentQuestionIndex }); sendNextQuestion();
+            console.log(`Soru ${currentQuestionIndex + 1} için süre doldu.`); ioInstance.to(TOURNAMENT_ROOM).emit('question_timeout', { questionIndex: currentQuestionIndex }); sendNextQuestion(); // io yerine ioInstance
         }, QUESTION_TIME_LIMIT * 1000 + 1000);
     }
 
@@ -142,7 +139,7 @@ function setupSocketHandlers(io) {
         });
         const winnerName = detailedResults[0]?.name || 'belli değil';
         sendAnnouncerMessage(`Yarışma sona erdi! Kazanan ${winnerName}! 🏆 İşte sonuçlar:`, "gameover");
-        io.to(TOURNAMENT_ROOM).emit('game_over', { results: detailedResults });
+        ioInstance.to(TOURNAMENT_ROOM).emit('game_over', { results: detailedResults }); // io yerine ioInstance
         if (isAdminSDKInitialized && dbAdmin) {
             const updatePromises = detailedResults.map(playerResult => {
                 const userDocRefAdmin = dbAdmin.collection("users").doc(playerResult.uid); const updates = {};
@@ -156,13 +153,12 @@ function setupSocketHandlers(io) {
         } else { console.warn("Firebase Admin SDK başlatılmadığı için Firestore güncellemeleri yapılamadı."); }
         setTimeout(() => {
             console.log("Oyun durumu IDLE'a dönüyor."); currentGameState = GAME_MODES.IDLE; tournamentPlayers.clear(); gameQuestions = []; currentQuestionIndex = -1;
-            io.to(TOURNAMENT_ROOM).emit('reset_game', { message: 'Oyun bitti. Yeni oyun bekleniyor.' });
+            ioInstance.to(TOURNAMENT_ROOM).emit('reset_game', { message: 'Oyun bitti. Yeni oyun bekleniyor.' }); // io yerine ioInstance
         }, 15000);
     }
 
-
     // Ana Bağlantı Olay Yöneticisi
-    io.on('connection', (socket) => {
+    ioInstance.on('connection', (socket) => { // io yerine ioInstance
         console.log(`Bağlandı: ${socket.id}, Durum: ${currentGameState}`);
         socket.emit('initial_state', { gameState: currentGameState, players: getSortedPlayerList() });
 
@@ -176,7 +172,9 @@ function setupSocketHandlers(io) {
             tournamentPlayers.set(socket.id, { name: playerName, score: 0, combo: 0, isReady: false, grade: playerGrade, uid: playerUid, currentTournamentXP: 0, currentTournamentResources: { ...DEFAULT_RESOURCES }, maxComboAchieved: 0, minCorrectAnswerTimeMs: Infinity, maxDifficultyBonusAchieved: 0, correctAnswerCount: 0, totalAnswerCount: 0, totalCorrectAnswerTimeMs: 0, bonusResourcesEarned: 0 });
             if (currentGameState === GAME_MODES.IDLE) { currentGameState = GAME_MODES.WAITING_TOURNAMENT; }
             sendAnnouncerMessage(`${playerName} yarışmaya katıldı! Aramıza hoş geldin! 👋`, "join"); broadcastTournamentState();
-            if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && tournamentPlayers.size >= MIN_PLAYERS_TO_INFORM) { io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Oyuncular bekleniyor. Hazır olduğunuzda belirtin.' }); }
+            if (currentGameState === GAME_MODES.WAITING_TOURNAMENT && tournamentPlayers.size >= MIN_PLAYERS_TO_INFORM) {
+                 ioInstance.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Oyuncular bekleniyor. Hazır olduğunuzda belirtin.' }); // io yerine ioInstance
+            }
         });
 
         socket.on('player_ready', () => {
@@ -186,7 +184,7 @@ function setupSocketHandlers(io) {
                 player.isReady = true; console.log(`Oyuncu ${player.name} (${socket.id}) hazır.`); sendAnnouncerMessage(`${player.name} hazır! 👍`, "info"); broadcastTournamentState();
                 const allPlayersArray = Array.from(tournamentPlayers.values()); const readyPlayerCount = allPlayersArray.filter(p => p.isReady).length; const totalPlayerCount = allPlayersArray.length;
                 if (totalPlayerCount >= 1 && readyPlayerCount === totalPlayerCount) { console.log("Tüm oyuncular hazır, turnuva başlatılıyor..."); sendAnnouncerMessage("Herkes hazır görünüyor! Geri sayım başlasın!", "info"); setTimeout(startTournament, 1000); }
-                else { io.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Diğer oyuncuların hazır olması bekleniyor...' }); }
+                else { ioInstance.to(TOURNAMENT_ROOM).emit('waiting_update', { message: 'Diğer oyuncuların hazır olması bekleniyor...' }); } // io yerine ioInstance
             }
         });
 
@@ -197,7 +195,7 @@ function setupSocketHandlers(io) {
             const player = tournamentPlayers.get(socket.id);
             if (currentQuestionAnswers.has(socket.id)) { console.log(`${player.name} (${socket.id}) bu soruya zaten cevap verdi.`); return; }
             const question = gameQuestions[currentQuestionIndex];
-            if (!question || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined' || typeof question.branch === 'undefined') { console.error(`HATA: Soru ${currentQuestionIndex} için cevap kontrolü yapılamadı! Gerekli alanlar eksik.`); return; }
+            if (!question || typeof question.correct_answer === 'undefined' || typeof question.grade === 'undefined' || typeof question.branch === 'undefined') { console.error(`HATA: Soru ${currentQuestionIndex} için cevap kontrolü yapılamadı!`); return; }
             const correctAnswer = question.correct_answer; const timeDiffMs = answerTime - questionStartTime;
             let pointsAwarded = 0; let correct = false; let comboBroken = false; let currentCombo = player.combo || 0; let adjustedBaseScore = BASE_SCORE; let gradeDifference = 0; let difficultyBonusPoints = 0;
             player.totalAnswerCount++;
@@ -211,19 +209,19 @@ function setupSocketHandlers(io) {
                 } else { adjustedBaseScore = BASE_SCORE; }
                 pointsAwarded = Math.round(adjustedBaseScore + timeBonus + comboBonus); player.score += pointsAwarded; player.currentTournamentXP += XP_PER_CORRECT_ANSWER;
                 const resourceType = BRANCH_RESOURCE_MAP[question.branch];
-                if (resourceType && player.currentTournamentResources.hasOwnProperty(resourceType)) { player.currentTournamentResources[resourceType]++; if (comboBonus > 0 || difficultyBonusPoints > 0) { player.currentTournamentResources[resourceType]++; player.bonusResourcesEarned++; console.log(`Bonus kaynak kazanıldı: +1 ${resourceType} (Toplam Bonus Kaynak: ${player.bonusResourcesEarned})`); } }
-                console.log(`Doğru! ${player.name} (${socket.id}) +${pointsAwarded}p. Skor: ${player.score}, Kombo: ${player.combo}`);
+                if (resourceType && player.currentTournamentResources.hasOwnProperty(resourceType)) { player.currentTournamentResources[resourceType]++; if (comboBonus > 0 || difficultyBonusPoints > 0) { player.currentTournamentResources[resourceType]++; player.bonusResourcesEarned++; console.log(`Bonus kaynak kazanıldı: +1 ${resourceType}`); } }
+                console.log(`Doğru! ${player.name} (${socket.id}) +${pointsAwarded}p.`);
                 if (gradeDifference >= SIGNIFICANT_GRADE_DIFFERENCE && difficultyBonusPoints > 0) { setTimeout(() => sendAnnouncerMessage(`İnanılmaz! ${player.name}, ${gradeDifference} sınıf üstü soruyu doğru cevapladı! +${difficultyBonusPoints} zorluk bonusu kazandı! 🚀`, "bonus"), 500); }
                 if (player.combo >= 2) { setTimeout(()=> sendAnnouncerMessage(`${player.name} ${player.combo}x Kombo! 💪 +${comboBonus} bonus!`, "combo"), 300); }
             } else {
-                comboBroken = player.combo > 0; player.combo = 0; console.log(`Yanlış! ${player.name} (${socket.id}). Kombo sıfırlandı.`); if (comboBroken) { setTimeout(()=> sendAnnouncerMessage(`${player.name}'in ${currentCombo}x kombosu sona erdi! 💥`, "combo_break"), 300); }
+                comboBroken = player.combo > 0; player.combo = 0; console.log(`Yanlış! ${player.name} (${socket.id}).`); if (comboBroken) { setTimeout(()=> sendAnnouncerMessage(`${player.name}'in ${currentCombo}x kombosu sona erdi! 💥`, "combo_break"), 300); }
             }
             currentQuestionAnswers.set(socket.id, { answer: data.answer, timeMs: timeDiffMs, correct: correct });
             socket.emit('answer_result', { correct, score: player.score, pointsAwarded, combo: player.combo, comboBroken, questionIndex: currentQuestionIndex, submittedAnswer: data.answer }); broadcastTournamentState();
         });
 
         socket.on('disconnect', (reason) => {
-            console.log(`[Disconnect] ID: ${socket.id}, Sebep: ${reason}, Mevcut Durum: ${currentGameState}`);
+            console.log(`[Disconnect] ID: ${socket.id}, Sebep: ${reason}`);
             if (tournamentPlayers.has(socket.id)) {
                 const player = tournamentPlayers.get(socket.id); const wasReady = player.isReady; const playerName = player.name;
                 tournamentPlayers.delete(socket.id); console.log(`[Disconnect] Oyuncu ${socket.id} (${playerName}) silindi. Kalan: ${tournamentPlayers.size}`); sendAnnouncerMessage(`${playerName} yarışmadan ayrıldı.`, "leave");
@@ -240,103 +238,4 @@ function setupSocketHandlers(io) {
     }); // io.on('connection') sonu
 } // setupSocketHandlers sonu
 
-// Socket handlers'ı başlat
-setupSocketHandlers(io);
-
-// --- Admin API Rotaları ---
-const checkAdminAuth = async (req, res, next) => {
-    const idToken = req.headers.authorization?.split('Bearer ')[1];
-    if (!idToken) { return res.status(401).send({ error: 'Yetkilendirme başarısız: Token bulunamadı.' }); }
-    if (!isAdminSDKInitialized || !authAdmin) { console.error("[Admin Auth] Firebase Admin SDK başlatılmamış."); return res.status(500).send({ error: 'Sunucu yapılandırma hatası.' }); }
-    try {
-        const decodedToken = await authAdmin.verifyIdToken(idToken);
-        const userDoc = await dbAdmin.collection('users').doc(decodedToken.uid).get();
-        if (!userDoc.exists) { console.warn(`[Admin Auth] Firestore'da kullanıcı bulunamadı: ${decodedToken.uid}`); return res.status(403).send({ error: 'Yetkilendirme başarısız: Kullanıcı bulunamadı.' }); }
-        const userData = userDoc.data();
-        const isAdmin = userData.roles?.includes('admin');
-        if (!isAdmin) { console.warn(`[Admin Auth] Yetkisiz erişim denemesi (admin değil): ${decodedToken.email || decodedToken.uid}`); return res.status(403).send({ error: 'Yetkilendirme başarısız: Admin yetkisi gerekli.' }); }
-        req.user = decodedToken;
-        req.userData = userData;
-        next();
-    } catch (error) {
-        console.error('[Admin Auth] Token doğrulama hatası:', error.message);
-        return res.status(401).send({ error: 'Yetkilendirme başarısız: Geçersiz token.' });
-    }
-};
-
-const adminRouter = express.Router();
-
-adminRouter.get('/questions', checkAdminAuth, async (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-    if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
-    try {
-        const totalResult = await pool.query('SELECT COUNT(*) FROM questions');
-        const totalItems = parseInt(totalResult.rows[0].count, 10);
-        const query = 'SELECT * FROM questions ORDER BY id DESC LIMIT $1 OFFSET $2';
-        const result = await pool.query(query, [limit, offset]);
-        res.status(200).send({ questions: result.rows, pagination: { currentPage: page, limit: limit, totalItems: totalItems, totalPages: Math.ceil(totalItems / limit) } });
-    } catch (error) { console.error('API Soru Listeleme Hatası:', error); res.status(500).send({ error: 'Sorular listelenirken bir hata oluştu.' }); }
-});
-
-adminRouter.post('/questions', checkAdminAuth, async (req, res) => {
-    const { question_text, options, correct_answer, grade, branch } = req.body;
-    if (!question_text || !options || !correct_answer || !grade || !branch) { return res.status(400).send({ error: 'Eksik alanlar var.' }); }
-    if (!Array.isArray(options) || options.length < 2) { return res.status(400).send({ error: 'Seçenekler en az 2 elemanlı dizi olmalı.' }); }
-    if (!options.includes(correct_answer)) { return res.status(400).send({ error: 'Doğru cevap seçeneklerde olmalı.' }); }
-    if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
-    try {
-        const query = `INSERT INTO questions (question_text, options, correct_answer, grade, branch) VALUES ($1, $2, $3, $4, $5) RETURNING *;`;
-        const optionsValue = options;
-        const result = await pool.query(query, [ question_text, optionsValue, correct_answer, grade, branch ]);
-        console.log("[Admin API] Yeni soru eklendi:", result.rows[0]);
-        res.status(201).send(result.rows[0]);
-    } catch (error) { console.error('API Yeni Soru Ekleme Hatası:', error); res.status(500).send({ error: 'Soru eklenirken sunucu hatası oluştu.' }); }
-});
-
-adminRouter.get('/questions/:id', checkAdminAuth, async (req, res) => {
-    const { id } = req.params;
-    if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
-    try {
-        const query = 'SELECT * FROM questions WHERE id = $1';
-        const result = await pool.query(query, [id]);
-        if (result.rows.length === 0) { return res.status(404).send({ error: 'Soru bulunamadı.' }); }
-        res.status(200).send(result.rows[0]);
-    } catch (error) { console.error(`API Soru Getirme Hatası (ID: ${id}):`, error); res.status(500).send({ error: 'Soru getirilirken bir hata oluştu.' }); }
-});
-
-adminRouter.put('/questions/:id', checkAdminAuth, async (req, res) => {
-    const { id } = req.params;
-    const { question_text, options, correct_answer, grade, branch } = req.body;
-    if (!question_text || !options || !correct_answer || !grade || !branch) { return res.status(400).send({ error: 'Eksik alanlar var.' }); }
-    if (!Array.isArray(options) || options.length < 2) { return res.status(400).send({ error: 'Seçenekler en az 2 elemanlı dizi olmalı.' }); }
-    if (!options.includes(correct_answer)) { return res.status(400).send({ error: 'Doğru cevap seçeneklerde olmalı.' }); }
-    if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
-    try {
-        const query = `UPDATE questions SET question_text = $1, options = $2, correct_answer = $3, grade = $4, branch = $5 WHERE id = $6 RETURNING *;`;
-        const optionsValue = options;
-        const result = await pool.query(query, [ question_text, optionsValue, correct_answer, grade, branch, id ]);
-        if (result.rows.length === 0) { return res.status(404).send({ error: 'Güncellenecek soru bulunamadı.' }); }
-        console.log(`[Admin API] Soru güncellendi (ID: ${id}):`, result.rows[0]);
-        res.status(200).send(result.rows[0]);
-    } catch (error) { console.error(`API Soru Güncelleme Hatası (ID: ${id}):`, error); res.status(500).send({ error: 'Soru güncellenirken bir sunucu hatası oluştu.' }); }
-});
-
-adminRouter.delete('/questions/:id', checkAdminAuth, async (req, res) => {
-     const { id } = req.params;
-     if (!pool) { return res.status(500).send({ error: 'Veritabanı bağlantısı yok.' }); }
-     try {
-         const query = 'DELETE FROM questions WHERE id = $1 RETURNING id;';
-         const result = await pool.query(query, [id]);
-         if (result.rowCount === 0) { return res.status(404).send({ error: 'Silinecek soru bulunamadı.' }); }
-         console.log(`[Admin API] Soru silindi (ID: ${id})`);
-         res.status(200).send({ message: `Soru (ID: ${id}) başarıyla silindi.` });
-     } catch (error) { console.error(`API Soru Silme Hatası (ID: ${id}):`, error); res.status(500).send({ error: 'Soru silinirken bir sunucu hatası oluştu.' }); }
- });
-
-app.use('/api/admin', adminRouter);
-// -----------------------------
-
-app.get('/', (req, res) => { res.setHeader('Content-Type', 'text/plain'); res.status(200).send(`Asrin Oyunu Backend Çalışıyor! Durum: ${currentGameState}, Oyuncular: ${tournamentPlayers.size}`); });
-server.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda dinleniyor...`); if (!process.env.DATABASE_URL) console.warn("UYARI: DATABASE_URL çevre değişkeni bulunamadı."); });
+module.exports = setupSocketHandlers; // Fonksiyonu export et
