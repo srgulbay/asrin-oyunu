@@ -5,19 +5,21 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import PeopleIcon from '@mui/icons-material/People';
 import QuizIcon from '@mui/icons-material/Quiz';
 import SettingsIcon from '@mui/icons-material/Settings';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // Turnuva ikonu
 
 const drawerWidth = 240;
 
 function AdminLayout() {
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/admin' },
-    { text: 'Kullanıcılar', icon: <PeopleIcon />, path: '/admin/users' },
+    { text: 'Kullanıcılar', icon: <PeopleIcon />, path: '/admin/users' }, // Henüz sayfası yok
     { text: 'Sorular', icon: <QuizIcon />, path: '/admin/questions' },
-    // { text: 'Ayarlar', icon: <SettingsIcon />, path: '/admin/settings' }, // Henüz eklemedik
+    { text: 'Turnuvalar', icon: <EmojiEventsIcon />, path: '/admin/tournaments' }, // EKLENDİ
+    // { text: 'Ayarlar', icon: <SettingsIcon />, path: '/admin/settings' }, // Henüz sayfası yok
   ];
 
   return (
-    <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}> {/* AppBar yüksekliğini çıkar */}
+    <Box sx={{ display: 'flex', minHeight: 'calc(100vh - 64px)' }}>
       <Drawer
         variant="permanent"
         sx={{
