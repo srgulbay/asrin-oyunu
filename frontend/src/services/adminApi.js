@@ -1,8 +1,12 @@
 import { auth } from '../firebaseConfig';
 
-// --- GÜNCELLEME: Backend URL'sini .env'den al ---
-const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000') + '/api/admin';
-// ---------------------------------------------
+// --- LOGLAMA EKLENDİ ---
+const backendUrlFromEnv = import.meta.env.VITE_BACKEND_URL;
+console.log(">>> adminApi.js: VITE_BACKEND_URL Değeri:", backendUrlFromEnv);
+
+const API_BASE_URL = (backendUrlFromEnv || 'http://localhost:3000') + '/api/admin';
+console.log(">>> adminApi.js: Oluşturulan API_BASE_URL:", API_BASE_URL);
+// ----------------------
 
 const getAuthHeader = async () => {
     const user = auth.currentUser;
@@ -17,7 +21,7 @@ const getAuthHeader = async () => {
 };
 
 export const getQuestions = async (page = 1, limit = 10) => {
-    console.log(`>>> API CALL: getQuestions (page: ${page}, limit: ${limit}) URL: ${API_BASE_URL}/questions`); // URL'yi logla
+    console.log(`>>> API CALL: getQuestions (page: ${page}, limit: ${limit}) URL: ${API_BASE_URL}/questions`);
     try {
         const headers = await getAuthHeader();
         const response = await fetch(`${API_BASE_URL}/questions?page=${page}&limit=${limit}`, {
@@ -27,6 +31,10 @@ export const getQuestions = async (page = 1, limit = 10) => {
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Bilinmeyen sunucu hatası' }));
             console.error(`API Hatası (${response.status}):`, errorData);
+            // 404 hatası durumunda daha açıklayıcı mesaj verelim
+            if (response.status === 404) {
+                 throw new Error(`API yolu bulunamadı (${response.status}): ${API_BASE_URL}/questions adresini kontrol edin.`);
+            }
             throw new Error(errorData.error || `HTTP Hata Kodu: ${response.status}`);
         }
         const data = await response.json();
