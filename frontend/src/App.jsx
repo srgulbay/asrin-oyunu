@@ -32,6 +32,7 @@ import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminQuestionListPage from './pages/admin/AdminQuestionListPage';
+import AdminQuestionFormPage from './pages/admin/AdminQuestionFormPage';
 import ScreenDebugLog from './components/ScreenDebugLog';
 import createAppTheme from './theme';
 
@@ -166,7 +167,7 @@ function App() {
     if (!isLoading && isLoggedIn) {
         const currentUser = auth.currentUser;
         if (currentUser && (!socketRef.current || !socketRef.current.connected)) {
-             logToScreen(`Socket bağlantısı kuruluyor (useEffect - No Token): ${SERVER_URL}`);
+             logToScreen(`Socket bağlantısı kuruluyor: ${SERVER_URL}`);
              socketInstance = io(SERVER_URL, { transports: ['websocket', 'polling'] });
              setSocket(socketInstance);
              setupSocketListeners(socketInstance);
@@ -264,9 +265,7 @@ function App() {
        }
 
        if (gameState === GAME_STATES.IDLE || (gameState === GAME_STATES.WAITING_TOURNAMENT && !players.find(p=>p.id === socket?.id))) {
-            if (!isLoggedIn) {
-                return ( <Paper elevation={3} sx={{p:3, textAlign:'center'}}> <Typography variant="h5">Oynamak için Giriş Yapın</Typography> <Button component={RouterLink} to="/login" variant="contained" sx={{mt: 2}}>Giriş Yap</Button> <Button component={RouterLink} to="/register" variant="outlined" sx={{mt: 2, ml: 1}}>Kayıt Ol</Button> </Paper> );
-            }
+            if (!isLoggedIn) { return ( <Paper elevation={3} sx={{p:3, textAlign:'center'}}> <Typography variant="h5">Oynamak için Giriş Yapın</Typography> <Button component={RouterLink} to="/login" variant="contained" sx={{mt: 2}}>Giriş Yap</Button> <Button component={RouterLink} to="/register" variant="outlined" sx={{mt: 2, ml: 1}}>Kayıt Ol</Button> </Paper> ); }
             return ( <Paper elevation={3} sx={{p:3, textAlign:'center'}}> <Typography variant="h5">Turnuvaya Katılmaya Hazır Mısın?</Typography> <Button variant="contained" size="large" onClick={handleJoinTournament} sx={{mt: 2}} disabled={joinButtonDisabled} > {joinButtonText} </Button> <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{waitingMessage}</Typography> <Box mt={2} p={1} border="1px dashed grey" borderRadius={1} sx={{textAlign: 'left', fontSize: '0.75rem'}}> <Typography variant="caption" display="block" sx={{fontWeight: 'bold'}}>Debug Info:</Typography> <Typography variant="caption" display="block">isLoading: {isLoading.toString()}</Typography> <Typography variant="caption" display="block">isConnected: {isConnected.toString()}</Typography> <Typography variant="caption" display="block">isLoggedIn: {isLoggedIn.toString()}</Typography> <Typography variant="caption" display="block">user exists: {user ? 'Yes' : 'No'}</Typography> <Typography variant="caption" display="block">user UID (from state): {user?.uid || 'Yok'}</Typography> <Typography variant="caption" display="block">Button Disabled: {joinButtonDisabled.toString()}</Typography> </Box> </Paper> );
        }
        if (gameState === GAME_STATES.WAITING_TOURNAMENT) { return <WaitingLobby players={players} handlePlayerReady={handlePlayerReady} isPlayerReady={isPlayerReady} waitingMessage={waitingMessage} currentSocketId={socket?.id}/>; }
@@ -312,7 +311,7 @@ function App() {
                 <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
                      <Route index element={<AdminDashboardPage />} />
                      <Route path="questions" element={<AdminQuestionListPage />} />
-                     {/* <Route path="questions/new" element={<AdminQuestionFormPage />} /> */}
+                     <Route path="questions/new" element={<AdminQuestionFormPage />} />
                 </Route>
                  <Route path="/" element={
                      <Grid container spacing={2} alignItems="flex-start">
