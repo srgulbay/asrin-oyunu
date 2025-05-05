@@ -32,18 +32,17 @@ import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminQuestionListPage from './pages/admin/AdminQuestionListPage';
-import ScreenDebugLog from './components/ScreenDebugLog'; // YENİ IMPORT
 import createAppTheme from './theme';
 
 import { auth } from './firebaseConfig';
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import useUserStore from './store/userStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import AdminQuestionFormPage from './pages/admin/AdminQuestionFormPage'; // YENİ IMPORT
 
 const SERVER_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 const GAME_STATES = { IDLE: 'idle', WAITING_TOURNAMENT: 'waiting_tournament', TOURNAMENT_RUNNING: 'tournament_running', GAME_OVER: 'game_over' };
 const MAX_LOG_MESSAGES = 20;
-const MAX_SCREEN_LOGS = 50; // Ekranda tutulacak max log sayısı
 
 
 function ProtectedRoute({ children }) {
@@ -67,7 +66,9 @@ function AdminRoute({ children }) {
     const isLoggedIn = useUserStore((state) => state.isLoggedIn);
     const isLoading = useUserStore((state) => state.isLoading);
     const isAdmin = user?.roles?.includes('admin');
+
     useEffect(() => { if (!isLoading && isLoggedIn && !isAdmin) { console.log(">>> AdminRoute: Yetkisiz erişim denemesi.", user?.email); } }, [isLoading, isLoggedIn, isAdmin, user]);
+
     if (isLoading) { return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}><CircularProgress /></Box>; }
     if (!isLoggedIn) { return <Navigate to="/login" state={{ from: '/admin' }} replace />; }
     if (!isAdmin) { return <Navigate to="/" replace />; }
@@ -91,52 +92,41 @@ function App() {
   const [mode, setMode] = useState('light');
   const [installPromptEvent, setInstallPromptEvent] = useState(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
-  const [screenLogs, setScreenLogs] = useState([]); // YENİ STATE: Ekran Logları
 
   const { user, isLoggedIn, isLoading, setUser, clearUser } = useUserStore();
 
   const questionTimerIntervalRef = useRef(null);
   const socketRef = useRef(socket);
 
-  // --- YENİ: Ekrana Log Yazma Fonksiyonu ---
-  const logToScreen = useCallback((message, data = null) => {
-      const timestamp = new Date().toLocaleTimeString([], { hour12: false });
-      let logString = `[${timestamp}] ${message}`;
-      if (data !== null) {
-          try {
-              logString += ` :: ${JSON.stringify(data, null, 2)}`;
-          } catch (e) {
-              logString += ` :: [Veri loglanamadı]`;
-          }
-      }
-      setScreenLogs(prev => [...prev.slice(-MAX_SCREEN_LOGS + 1), logString]);
-      console.log(message, data !== null ? data : ''); // Konsola da yazmaya devam etsin
-  }, []);
-  // ----------------------------------------
-
-  logToScreen(`APP RENDER: isLoading=${isLoading}, isConnected=${isConnected}, isLoggedIn=${isLoggedIn}, userUID=${user?.uid}`);
+  console.log(`>>> APP RENDER: isLoading=${isLoading}, isConnected=${isConnected}, isLoggedIn=${isLoggedIn}, userUID=${user?.uid}, roles=${user?.roles}`);
 
   useEffect(() => { const currentHour = new Date().getHours(); const calculatedMode = (currentHour >= 18 || currentHour < 6) ? 'dark' : 'light'; setMode(calculatedMode); }, []);
   const theme = useMemo(() => createAppTheme(mode), [mode]);
   useEffect(() => { const handleBeforeInstallPrompt = (event) => { event.preventDefault(); setInstallPromptEvent(event); if (!window.matchMedia('(display-mode: standalone)').matches) { setShowInstallButton(true); } }; window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt); return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); }; }, []);
 
   useEffect(() => {
-    logToScreen("Auth Listener useEffect Kuruluyor");
+    console.log(">>> Auth Listener useEffect Kuruluyor");
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      logToScreen("onAuthStateChanged Triggered. User:", firebaseUser ? firebaseUser.uid : null);
-      setUser(firebaseUser); // setUser hala store'daki logları kullanacak
+      console.log(">>> onAuthStateChanged Triggered. User:", firebaseUser ? firebaseUser.uid : null);
+      setUser(firebaseUser);
     });
-    return () => { logToScreen("Auth Listener useEffect Temizleniyor."); unsubscribe(); };
-  }, [setUser, logToScreen]);
+    return () => {
+      console.log(">>> Auth Listener useEffect Temizleniyor.");
+      unsubscribe();
+    };
+  }, [setUser]);
 
   useEffect(() => {
-    logToScreen("Zustand user state listener kuruluyor.");
+    console.log(">>> Zustand user state listener kuruluyor.");
     const unsubscribe = useUserStore.subscribe(
       (state) => state.user,
-      (newUser, previousUser) => { logToScreen("Zustand user state DEĞİŞTİ!", { newUID: newUser?.uid }); }
+      (newUser, previousUser) => { console.log(">>> Zustand user state DEĞİŞTİ!", { newUID: newUser?.uid, newRoles: newUser?.roles }); }
     );
-    return () => { logToScreen("Zustand user state listener kaldırılıyor."); unsubscribe(); };
-  }, [logToScreen]);
+    return () => {
+      console.log(">>> Zustand user state listener kaldırılıyor.");
+      unsubscribe();
+    };
+  }, []);
 
   const setupSocketListeners = useCallback((socketInstance) => {
       socketInstance.off('connect'); socketInstance.off('connect_error'); socketInstance.off('disconnect');
@@ -144,90 +134,77 @@ function App() {
       socketInstance.off('tournament_state_update'); socketInstance.off('new_question'); socketInstance.off('question_timeout');
       socketInstance.off('answer_result'); socketInstance.off('game_over'); socketInstance.off('waiting_update');
       socketInstance.off('announcer_message');
-
-      const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); logToScreen("Socket Bağlandı!", {id: socketInstance.id});};
-      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); logToScreen("Socket Bağlantı Hatası:", err);};
-      const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); logToScreen("Socket Disconnect sebebi:", reason); };
-      const handleErrorMessage = (data) => { logToScreen("Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
-      const handleResetGame = (data) => { logToScreen("reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
-      const handleInitialState = (data) => { logToScreen("initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
-      const handleStateUpdate = (data) => { logToScreen("tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING && questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleNewQuestion = (questionData) => { logToScreen("new_question alındı:", questionData); setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
-      const handleQuestionTimeout = (data) => { logToScreen("question_timeout alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === socketInstance?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleAnswerResult = (data) => { logToScreen("answer_result alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
-      const handleGameOver = (data) => { logToScreen("game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
-      const handleWaitingUpdate = (data) => { logToScreen("waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
-      const handleAnnouncerMessage = (newMessage) => { logToScreen("announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
-
-      socketInstance.on('connect', handleConnect);
-      socketInstance.on('connect_error', handleConnectError);
-      socketInstance.on('disconnect', handleDisconnect);
-      socketInstance.on('error_message', handleErrorMessage);
-      socketInstance.on('reset_game', handleResetGame);
-      socketInstance.on('initial_state', handleInitialState);
-      socketInstance.on('tournament_state_update', handleStateUpdate);
-      socketInstance.on('new_question', handleNewQuestion);
-      socketInstance.on('question_timeout', handleQuestionTimeout);
-      socketInstance.on('answer_result', handleAnswerResult);
-      socketInstance.on('game_over', handleGameOver);
-      socketInstance.on('waiting_update', handleWaitingUpdate);
+      const handleConnect = () => { setIsConnected(true); setConnectionMessage('Sunucuya Bağlandı.'); console.log(">>> Socket Bağlandı! ID:", socketInstance.id);};
+      const handleConnectError = (err) => { setIsConnected(false); setConnectionMessage(`Bağlantı hatası: ${err.message}`); console.log(">>> Socket Bağlantı Hatası:", err);};
+      const handleDisconnect = (reason) => { setIsConnected(false); setConnectionMessage('Bağlantı kesildi.'); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setIsPlayerReady(false); setAnnouncerLog([]); console.log(">>> Socket Disconnect sebebi:", reason); };
+      const handleErrorMessage = (data) => { console.log(">>> Sunucu Hatası:", data.message); alert(`Sunucu Hatası: ${data.message}`); };
+      const handleResetGame = (data) => { console.log(">>> reset_game alındı:", data); setGameState(GAME_STATES.IDLE); setPlayers([]); setCurrentQuestion(null); setGameResults(null); setWaitingMessage(data.message || 'Yeni oyun bekleniyor.'); setLastAnswerResult(null); setIsPlayerReady(false); setAnnouncerLog( prev => [{id: crypto.randomUUID(), text: data.message || 'Yeni oyun bekleniyor.', type:'info', timestamp: Date.now()}, ...prev].slice(0, MAX_LOG_MESSAGES) ); };
+      const handleInitialState = (data) => { console.log(">>> initial_state alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); setAnnouncerLog([]); };
+      const handleStateUpdate = (data) => { console.log(">>> tournament_state_update alındı:", data); setGameState(data.gameState); setPlayers(data.players || []); if (data.currentQuestionIndex === -1) { setCurrentQuestion(null); setLastAnswerResult(null); } if (data.gameState === GAME_STATES.WAITING_TOURNAMENT) { setWaitingMessage(''); const myPlayer = data.players.find(p => p.id === socketInstance.id); setIsPlayerReady(myPlayer?.isReady || false); } if (data.gameState === GAME_STATES.TOURNAMENT_RUNNING) setIsPlayerReady(false); if (data.gameState !== GAME_STATES.TOURNAMENT_RUNNING && questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+      const handleNewQuestion = (questionData) => { console.log(">>> new_question alındı:", questionData); setCurrentQuestion({ ...questionData, answered: false, timedOut: false }); setGameResults(null); setLastAnswerResult(null); setGameState(GAME_STATES.TOURNAMENT_RUNNING); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); let timeLeft = questionData.timeLimit; setTimeRemaining(timeLeft); questionTimerIntervalRef.current = setInterval(() => { setTimeRemaining(prevTime => { if (prevTime <= 1) { clearInterval(questionTimerIntervalRef.current); return 0; } return prevTime - 1; }); }, 1000); };
+      const handleQuestionTimeout = (data) => { console.log(">>> question_timeout alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) { setCurrentQuestion(prev => ({...prev, timedOut: true})); const currentPlayerScore = players.find(p => p.id === socketInstance?.id)?.score || 0; setLastAnswerResult({ timeout: true, questionIndex: data.questionIndex, correct: false, score: currentPlayerScore }); } if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+      const handleAnswerResult = (data) => { console.log(">>> answer_result alındı:", data); if (currentQuestion && data.questionIndex === currentQuestion.index) setLastAnswerResult(data); };
+      const handleGameOver = (data) => { console.log(">>> game_over alındı:", data); setGameState(GAME_STATES.GAME_OVER); setCurrentQuestion(null); setGameResults(data.results); setLastAnswerResult(null); if(questionTimerIntervalRef.current) clearInterval(questionTimerIntervalRef.current); };
+      const handleWaitingUpdate = (data) => { console.log(">>> waiting_update alındı:", data); if (gameState === GAME_STATES.WAITING_TOURNAMENT) setWaitingMessage(data.message); };
+      const handleAnnouncerMessage = (newMessage) => { console.log(">>> announcer_message alındı:", newMessage); setAnnouncerLog(prevLog => [{...newMessage, id: newMessage.id || crypto.randomUUID() }, ...prevLog].slice(0, MAX_LOG_MESSAGES)); };
+      socketInstance.on('connect', handleConnect); socketInstance.on('connect_error', handleConnectError); socketInstance.on('disconnect', handleDisconnect);
+      socketInstance.on('error_message', handleErrorMessage); socketInstance.on('reset_game', handleResetGame); socketInstance.on('initial_state', handleInitialState);
+      socketInstance.on('tournament_state_update', handleStateUpdate); socketInstance.on('new_question', handleNewQuestion); socketInstance.on('question_timeout', handleQuestionTimeout);
+      socketInstance.on('answer_result', handleAnswerResult); socketInstance.on('game_over', handleGameOver); socketInstance.on('waiting_update', handleWaitingUpdate);
       socketInstance.on('announcer_message', handleAnnouncerMessage);
-
-  }, [currentQuestion, gameState, logToScreen]); // logToScreen eklendi
+  }, [currentQuestion, gameState]);
 
   useEffect(() => {
-    logToScreen(`Socket Bağlantı KONTROL useEffect: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
+    console.log(`>>> Socket Bağlantı KONTROL useEffect: isLoggedIn=${isLoggedIn}, isLoading=${isLoading}`);
     let socketInstance = null;
     if (!isLoading && isLoggedIn) {
         const currentUser = auth.currentUser;
         if (currentUser && (!socketRef.current || !socketRef.current.connected)) {
-             logToScreen(`Socket bağlantısı kuruluyor (useEffect - No Token): ${SERVER_URL}`);
+             console.log(`%c>>> Socket bağlantısı kuruluyor (useEffect - No Token): ${SERVER_URL}`, 'color: green; font-weight: bold;');
              socketInstance = io(SERVER_URL, { transports: ['websocket', 'polling'] });
              setSocket(socketInstance);
              setupSocketListeners(socketInstance);
-        } else if (!currentUser) {
-             logToScreen("Kullanıcı bilgisi (currentUser) henüz gelmemiş olabilir.");
         }
     } else if (!isLoggedIn && socketRef.current) {
-        logToScreen("Kullanıcı çıkış yapmış, mevcut socket bağlantısı kesiliyor.");
+        console.log(">>> Kullanıcı çıkış yapmış, mevcut socket bağlantısı kesiliyor.");
         socketRef.current.disconnect();
         setSocket(null);
         setIsConnected(false);
     }
     return () => {
-        logToScreen(`Socket Bağlantı useEffect TEMİZLENİYOR (isLoggedIn=${isLoggedIn}, isLoading=${isLoading})`);
-        if (socketInstance && socketInstance !== socketRef.current) {
-             logToScreen("Cleanup: Bu effect'te oluşturulan yeni socket kapatılıyor.");
-             socketInstance.disconnect();
-         }
+        console.log(`>>> Socket Bağlantı useEffect TEMİZLENİYOR (isLoggedIn=${isLoggedIn}, isLoading=${isLoading})`);
+         if (socketInstance && socketInstance !== socketRef.current) {
+              console.log(">>> Cleanup: Bu effect'te oluşturulan yeni socket kapatılıyor.");
+              socketInstance.disconnect();
+          }
     };
-  }, [isLoggedIn, isLoading, setupSocketListeners, logToScreen]);
+  }, [isLoggedIn, isLoading, setupSocketListeners]);
 
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
   const handleJoinTournament = useCallback(async () => {
-    logToScreen('handleJoinTournament ÇAĞRILDI!');
+    console.log('>>> handleJoinTournament ÇAĞRILDI!');
     const currentUser = auth.currentUser;
     if (!currentUser) {
-        logToScreen('Katılma başarısız: Firebase Auth kullanıcısı bulunamadı!');
+        console.log('>>> Katılma başarısız: Firebase Auth kullanıcısı bulunamadı!');
         alert('Giriş yapılmamış veya kullanıcı bilgisi alınamadı. Lütfen tekrar giriş yapın.');
         return;
     }
     const userUid = currentUser.uid;
     const joinName = currentUser.displayName || currentUser.email || `Oyuncu_${userUid.substring(0,4)}`;
     const userGrade = user?.grade;
-    logToScreen('Anlık Auth User UID:', userUid);
-    logToScreen(`Kontrol: socket=${!!socket}, isConnected=${isConnected}`);
+    console.log('>>> Anlık Auth User UID:', userUid);
+    console.log(`>>> Kontrol: socket=${!!socket}, isConnected=${isConnected}`);
     if (socket && isConnected) {
-        logToScreen('Koşul sağlandı, join_tournament emit ediliyor:', { name: joinName, grade: userGrade, uid: userUid });
+        console.log('>>> Koşul sağlandı, join_tournament emit ediliyor (Doğrudan Auth UID ile):', { name: joinName, grade: userGrade, uid: userUid });
         socket.emit('join_tournament', { name: joinName, grade: userGrade, uid: userUid });
         setWaitingMessage('Sunucuya katılım isteği gönderildi...');
         setIsPlayerReady(false);
     } else if (!isConnected || !socket) {
-        logToScreen(`Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
+        console.log(`>>> Katılma başarısız: Socket bağlı değil (${isConnected}) veya yok (${!!socket}).`);
         alert('Sunucu bağlantısı bekleniyor veya kurulamadı...');
     }
-  }, [socket, isConnected, user, logToScreen]); // logToScreen eklendi
+  }, [socket, isConnected, user]);
 
   const handleAnswerSubmit = useCallback((answer) => {
       if (socket && gameState === GAME_STATES.TOURNAMENT_RUNNING && currentQuestion && !currentQuestion.answered && !currentQuestion.timedOut) {
@@ -248,26 +225,26 @@ function App() {
       if (!installPromptEvent) return;
       installPromptEvent.prompt();
       const { outcome } = await installPromptEvent.userChoice;
-      logToScreen(`PWA Yükleme sonucu: ${outcome}`);
+      console.log(`PWA Yükleme sonucu: ${outcome}`);
       setInstallPromptEvent(null);
       setShowInstallButton(false);
-  }, [installPromptEvent, logToScreen]);
+  }, [installPromptEvent]);
 
    const handleLogout = useCallback(async () => {
       if (socketRef.current) {
-          logToScreen("Logout: Socket bağlantısı kesiliyor.");
+          console.log(">>> Logout: Socket bağlantısı kesiliyor.");
           socketRef.current.disconnect();
           setSocket(null);
           setIsConnected(false);
        }
       try {
           await signOut(auth);
-          logToScreen("Çıkış yapıldı (Firebase).");
+          console.log("Çıkış yapıldı (Firebase).");
       } catch (error) {
-          logToScreen("Çıkış hatası:", error);
+          console.error("Çıkış hatası:", error);
           alert("Çıkış yapılırken bir hata oluştu.");
       }
-   }, [logToScreen]);
+   }, []);
 
   const renderGameContent = () => {
        const isAuthLoading = isLoading;
@@ -329,7 +306,10 @@ function App() {
                 <Route path="/admin" element={ <AdminRoute> <AdminLayout /> </AdminRoute> } >
                      <Route index element={<AdminDashboardPage />} />
                      <Route path="questions" element={<AdminQuestionListPage />} />
-                     {/* <Route path="questions/new" element={<AdminQuestionFormPage />} /> */}
+                     {/* YENİ ROUTE */}
+                     <Route path="questions/new" element={<AdminQuestionFormPage />} />
+                     {/* -------------- */}
+                     {/* TODO: <Route path="questions/edit/:id" element={<AdminQuestionFormPage />} /> */}
                 </Route>
                  <Route path="/" element={
                      <Grid container spacing={2} alignItems="flex-start">
@@ -342,11 +322,6 @@ function App() {
                  }/>
            </Routes>
         </Container>
-
-        {/* --- YENİ: EKRAN LOG COMPONENTİ --- */}
-        <ScreenDebugLog logs={screenLogs} onClearLogs={() => setScreenLogs([])} />
-        {/* ------------------------------ */}
-
     </ThemeProvider>
   );
 }
