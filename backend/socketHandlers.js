@@ -59,27 +59,65 @@ function setupSocketHandlers(ioInstance) { // Parametre adı ioInstance olarak d
         if (sortedPlayersForLead.length > 0 && ( (qIndex + 1) % 3 === 0 || qIndex === gameQuestions.length -1 )) { sendAnnouncerMessage(`Şu anki lider ${sortedPlayersForLead[0].name} (${sortedPlayersForLead[0].score}p)! 👑`, "lead"); }
     }
 
-    async function startTournament() {
+    async function startTournament() { 
         const allPlayers = Array.from(tournamentPlayers.values());
-        if (currentGameState !== GAME_MODES.WAITING_TOURNAMENT || allPlayers.length < 1 || !allPlayers.every(p => p.isReady)) { sendAnnouncerMessage("Tüm oyuncular hazır olmadan oyun başlayamaz!", "warning"); return; }
-        sendAnnouncerMessage("Tüm oyuncular hazır! Yarışma 3 saniye içinde başlıyor...", "info"); console.log("Tüm oyuncular hazır. Turnuva başlıyor!");
+        if (currentGameState !== GAME_MODES.WAITING_TOURNAMENT || allPlayers.length < 1 || !allPlayers.every(p => p.isReady)) {
+            sendAnnouncerMessage("Tüm oyuncular hazır olmadan oyun başlayamaz!", "warning"); return;
+        }
+    
+        sendAnnouncerMessage("Tüm oyuncular hazır! Yarışma 3 saniye içinde başlıyor...", "info");
+        console.log("Tüm oyuncular hazır. Turnuva başlıyor!");
         currentGameState = GAME_MODES.TOURNAMENT_RUNNING;
+    
         try {
-             const sampleQuestions = [
-                { id: 1, question_text: '1+1 Kaç Yapar?', options: ['1', '2', '3', '4'], correct_answer: '2', grade: '1', branch: 'Matematik' },
-                { id: 2, question_text: 'Türkiye\'nin başkenti?', options: ['İstanbul', 'İzmir', 'Ankara', 'Bursa'], correct_answer: 'Ankara', grade: '5', branch: 'Sosyal Bilgiler' },
-                { id: 3, question_text: 'Fotosentez nedir?', options: ["Bitkilerin su içmesi", "Bitkilerin güneş enerjisiyle besin üretmesi", "Hayvanların uyuması"], correct_answer: 'Bitkilerin güneş enerjisiyle besin üretmesi', grade: '6', branch: 'Fen Bilimleri'},
-                { id: 4, question_text: 'Üçgenin iç açıları toplamı?', options: ['90', '180', '270', '360'], correct_answer: '180', grade: '5', branch: 'Matematik'},
-                { id: 5, question_text: 'What is the capital of Türkiye?', options: ['Istanbul', 'Izmir', 'Ankara', 'Bursa'], correct_answer: 'Ankara', grade: '4', branch: 'İngilizce' }
-             ];
-            if (!pool) { console.warn("UYARI: DB yok, örnek sorular kullanılıyor."); gameQuestions = sampleQuestions; }
-            else {
+            // --- YENİ: Aktif Turnuva Sorularını Çek ---
+            gameQuestions = []; // Önceki soruları temizle
+            let activeTournamentId = null;
+    
+            if (!pool) {
+                console.warn("UYARI: DB yok, örnek sorular kullanılıyor.");
+                // Örnek soruları burada tekrar tanımlayabiliriz veya constants'tan alabiliriz
+                 gameQuestions = [ { id: 1, question_text: '1+1 Kaç Yapar?', options: ['1', '2', '3', '4'], correct_answer: '2', grade: '1', branch: 'Matematik' }, /*...*/];
+            } else {
                 try {
-                    const result = await pool.query('SELECT id, question_text, options, correct_answer, grade, branch FROM questions ORDER BY RANDOM() LIMIT 5');
-                    if (result.rows.length === 0) { console.warn("UYARI: Veritabanında uygun soru bulunamadı, örnek sorular kullanılıyor."); gameQuestions = sampleQuestions; }
-                    else { gameQuestions = result.rows; console.log(`${gameQuestions.length} adet soru veritabanından çekildi.`); }
-                } catch (dbError) { console.error("Veritabanından soru çekme hatası:", dbError); sendAnnouncerMessage("Sorular yüklenirken bir hata oluştu.", "error"); gameQuestions = sampleQuestions; }
+                    // 1. Aktif turnuvayı bul (Sadece 1 tane aktif olmalı kuralı varsayımı)
+                    const activeTournamentResult = await pool.query("SELECT tournament_id FROM tournaments WHERE status = 'active' LIMIT 1");
+    
+                    if (activeTournamentResult.rows.length > 0) {
+                        activeTournamentId = activeTournamentResult.rows[0].tournament_id;
+                        console.log(`Aktif Turnuva bulundu: ID ${activeTournamentId}`);
+    
+                        // 2. Aktif turnuvaya ait soruları çek
+                        const questionsResult = await pool.query(
+                           `SELECT q.* FROM questions q JOIN tournament_questions tq ON q.id = tq.question_id WHERE tq.tournament_id = $1 ORDER BY RANDOM()`, // Şimdilik rastgele sıra
+                            [activeTournamentId]
+                        );
+    
+                        if (questionsResult.rows.length === 0) {
+                            console.warn(`UYARI: Aktif turnuva (ID: ${activeTournamentId}) için soru bulunamadı! Rastgele sorular çekiliyor.`);
+                             const randomResult = await pool.query('SELECT * FROM questions ORDER BY RANDOM() LIMIT 5'); // Fallback
+                             gameQuestions = randomResult.rows;
+                        } else {
+                            gameQuestions = questionsResult.rows;
+                            console.log(`${gameQuestions.length} adet soru aktif turnuvadan (ID: ${activeTournamentId}) çekildi.`);
+                        }
+                    } else {
+                         console.warn("UYARI: Aktif turnuva bulunamadı! Rastgele sorular çekiliyor.");
+                         const randomResult = await pool.query('SELECT * FROM questions ORDER BY RANDOM() LIMIT 5'); // Fallback
+                         gameQuestions = randomResult.rows;
+                    }
+    
+                } catch (dbError) {
+                     console.error("Aktif turnuva veya soruları çekme hatası:", dbError);
+                     sendAnnouncerMessage("Sorular yüklenirken bir hata oluştu.", "error");
+                     // Hata durumunda yine örnek veya rastgele sorulara dönülebilir
+                     const randomResult = await pool.query('SELECT * FROM questions ORDER BY RANDOM() LIMIT 5');
+                     gameQuestions = randomResult.rows;
+                }
             }
+            // -----------------------------------------
+    
+            // Oyuncu verilerini sıfırla (bu kısım aynı)
             currentQuestionIndex = -1;
             tournamentPlayers.forEach(player => {
                  player.score = 0; player.combo = 0; player.isReady = false;
@@ -89,10 +127,21 @@ function setupSocketHandlers(ioInstance) { // Parametre adı ioInstance olarak d
                  player.totalAnswerCount = 0; player.totalCorrectAnswerTimeMs = 0; player.bonusResourcesEarned = 0;
             });
             broadcastTournamentState();
+            // Eğer soru bulunamadıysa oyunu başlatma?
+            if (gameQuestions.length === 0) {
+                 sendAnnouncerMessage("Oynanacak soru bulunamadı! Oyun başlatılamıyor.", "error");
+                 currentGameState = GAME_MODES.IDLE;
+                 broadcastTournamentState();
+                 return;
+            }
             setTimeout(sendNextQuestion, 3000);
+    
         } catch (error) {
-            console.error("Turnuva başlatılırken hata:", error); sendAnnouncerMessage(`Oyun başlatılamadı: ${error.message}.`, "error");
-            currentGameState = GAME_MODES.IDLE; tournamentPlayers.forEach(p => p.isReady = false); broadcastTournamentState();
+            console.error("Turnuva başlatılırken genel hata:", error);
+            sendAnnouncerMessage(`Oyun başlatılamadı: ${error.message}.`, "error");
+            currentGameState = GAME_MODES.IDLE;
+            tournamentPlayers.forEach(p => p.isReady = false);
+            broadcastTournamentState();
         }
     }
 
